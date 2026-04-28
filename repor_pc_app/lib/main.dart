@@ -8,6 +8,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';      
 import 'edan_form.dart'; 
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // --- CONFIGURACIÓN GLOBAL ---
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
@@ -108,8 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Nota: Asegúrate de que apiUrl apunte a tu IP local o 10.0.2.2 si usas emulador
-      // La ruta completa en tu backend es /api/auth/login
+
       final response = await http.post(
         Uri.parse("$apiUrl/auth/login"),
         headers: {"Content-Type": "application/json"},
@@ -117,12 +117,14 @@ class _LoginScreenState extends State<LoginScreen> {
           "correo": correo,
           "password": password,
         }),
-      );
+      ).timeout(const Duration(seconds: 8));
 
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        print("¡Login exitoso!");
+final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('session_user', jsonEncode(data['usuario']));
+      await prefs.setString('session_token', data['token']);
         
         if (!mounted) return;
 
@@ -140,8 +142,29 @@ class _LoginScreenState extends State<LoginScreen> {
         _showSnackBar(data['error'] ?? "Credenciales incorrectas", Colors.red);
       }
     } catch (e) {
-      _showSnackBar("Error de conexión con el servidor", Colors.red);
-      print("Error: $e");
+      final prefs = await SharedPreferences.getInstance();
+    final String? userCached = prefs.getString('session_user');
+    final String? tokenCached = prefs.getString('session_token');
+
+    if (userCached != null && tokenCached != null) {
+      final userMap = jsonDecode(userCached);
+      
+      // Verificación básica: ¿Es el mismo correo que se logueó antes?
+      if (userMap['correo'] == correo) {
+        _showSnackBar("Modo Offline: Sesión recuperada", Colors.orange);
+        
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(
+          context, 
+          '/dashboard', 
+          arguments: {'usuario': userMap, 'token': tokenCached}
+        );
+      } else {
+        _showSnackBar("Sin conexión. El usuario no coincide con la sesión guardada.", Colors.red);
+      }
+    } else {
+      _showSnackBar("Sin conexión y no hay sesiones previas.", Colors.red);
+    }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -283,6 +306,30 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+  @override
+void initState() {
+  super.initState();
+  _revisarSesion();
+}
+
+Future<void> _revisarSesion() async {
+  final prefs = await SharedPreferences.getInstance();
+  final String? userCached = prefs.getString('session_user');
+  final String? tokenCached = prefs.getString('session_token');
+
+  if (userCached != null && tokenCached != null) {
+    // Si hay sesión, saltamos directo al Dashboard
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(
+      context, 
+      '/dashboard', 
+      arguments: {
+        'usuario': jsonDecode(userCached), 
+        'token': tokenCached
+      }
+    );
+  }
+}
 }
 
  //2. PANTALLA DE REGISTRO CON SECCIÓN LEGAL Y CHECKBOX ---
@@ -595,7 +642,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () => Navigator.pushReplacementNamed(context, '/'),
+            onPressed: () async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove('session_user'); // Borramos el caché
+  await prefs.remove('session_token');
+  if (!mounted) return;
+  Navigator.pushReplacementNamed(context, '/');
+}
           )
         ],
       ),
@@ -675,7 +728,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
                 }),
                 if (rol == 'oficial') ...[
-                  _buildMenuCard("REPORTES E.D.A.N.", Icons.fact_check_rounded, Colors.red.shade700, ()=> _obtenerUbicacionYIrFormulario(context, 'EDAN') ),]
+                  _buildMenuCard("REPORTES E.D.A.N.", Icons.fact_check_rounded, Colors.red.shade700, ()=> _obtenerUbicacionYIrFormulario(context, 'EDAN') ),
+                 _buildMenuCard(
+          "PENDIENTES POR ENVIAR", 
+          Icons.cloud_upload_rounded, 
+          Colors.amber.shade800, 
+          () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PendientesScreen(apiUrl: apiUrl),
+              ),
+            );
+          }
+        ), ]
               ],
             ),
           ),
@@ -1405,6 +1471,93 @@ class _AjustesPageState extends State<AjustesPage> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
         ),
       ),
+    );
+  }
+}
+class PendientesScreen extends StatefulWidget {
+  final String apiUrl;
+  const PendientesScreen({super.key, required this.apiUrl});
+
+  @override
+  State<PendientesScreen> createState() => _PendientesScreenState();
+}
+
+class _PendientesScreenState extends State<PendientesScreen> {
+  List<Map<String, dynamic>> _pendientes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarPendientes();
+  }
+
+  Future<void> _cargarPendientes() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> lista = prefs.getStringList('edan_pendientes') ?? [];
+    setState(() {
+      _pendientes = lista.map((item) => jsonDecode(item) as Map<String, dynamic>).toList();
+    });
+  }
+
+  Future<void> _sincronizarTodo() async {
+    if (_pendientes.isEmpty) return;
+
+    int exitosos = 0;
+    List<Map<String, dynamic>> fallidos = [];
+
+    for (var reporte in _pendientes) {
+      try {
+        final res = await http.post(
+          Uri.parse("${widget.apiUrl}/edan/registrar"),
+          headers: {"Content-Type": "application/json"},
+          body: jsonEncode(reporte),
+        );
+        if (res.statusCode == 201) exitosos++;
+        else fallidos.add(reporte);
+      } catch (e) {
+        fallidos.add(reporte);
+      }
+    }
+
+    // Actualizar almacenamiento local con lo que no se pudo enviar
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('edan_pendientes', fallidos.map((e) => jsonEncode(e)).toList());
+    
+    _cargarPendientes();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Sincronizados: $exitosos. Fallidos: ${fallidos.length}"))
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Reportes Pendientes"), backgroundColor: Colors.orange),
+      body: _pendientes.isEmpty 
+        ? const Center(child: Text("No hay reportes pendientes"))
+        : Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _pendientes.length,
+                  itemBuilder: (context, i) => ListTile(
+                    leading: const Icon(Icons.description, color: Colors.orange),
+                    title: Text("Reporte: ${_pendientes[i]['sector']}"),
+                    subtitle: Text("Propietario: ${_pendientes[i]['propetario']}"),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: ElevatedButton.icon(
+                  onPressed: _sincronizarTodo,
+                  icon: const Icon(Icons.sync),
+                  label: const Text("SINCRONIZAR AHORA"),
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                ),
+              )
+            ],
+          ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const String apiUrl = "http://localhost:3000/api"; 
 
@@ -234,8 +235,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
 
   Future<void> _enviarEdan() async {
     setState(() => _isLoading = true);
-    try {
-      final edanData = {
+    final edanData = {
         'id_oficial': widget.datosIniciales['id_usuario'],
         'numero_planilla': _planillaCtrl.text,
         'propetario': _propietarioCtrl.text,
@@ -275,12 +275,12 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
         'necesidades_luz': _necesitaLuz,
         'detalles_familiares': _familiares,
       };
-
+    try {
       final response = await http.post(
         Uri.parse("$apiUrl/edan/registrar"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode(edanData),
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("EDAN guardado exitosamente"), backgroundColor: Colors.green));
@@ -289,12 +289,29 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
         throw Exception("Error del servidor");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+      await _guardarLocalmente(edanData);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Sin conexión. Reporte guardado en 'Pendientes'."),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 5),
+      )
+    );
+    Navigator.pop(context);
     } finally {
       setState(() => _isLoading = false);
     }
   }
-
+  Future<void> _guardarLocalmente(Map<String, dynamic> data) async {
+  final prefs = await SharedPreferences.getInstance();
+  // Obtenemos la lista actual de pendientes
+  List<String> pendientes = prefs.getStringList('edan_pendientes') ?? [];
+  // Agregamos el nuevo reporte como texto JSON
+  pendientes.add(jsonEncode(data));
+  // Guardamos de nuevo
+  await prefs.setStringList('edan_pendientes', pendientes);
+}
   Widget _buildTextField(
     TextEditingController ctrl, 
     String label, 

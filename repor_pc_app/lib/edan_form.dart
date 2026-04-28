@@ -33,6 +33,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
 
   // 3. AFECTACIÓN
   final _fechaAfectacionCtrl = TextEditingController();
+  final _fechaSolicitudCtrl = TextEditingController();
   final _descAfectacionCtrl = TextEditingController();
   final _afectacionOtrosCtrl = TextEditingController();
   final _descViviendaCtrl = TextEditingController();
@@ -54,6 +55,22 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   String _necesitaAgua = 'no', _necesitaAlimentos = 'no', _necesitaLuz = 'no';
 
   int get _totalPersonas => lactFem + lactMasc + ninosFem + ninosMasc + adultosFem + adultosMasc + terceraFem + terceraMasc;
+  Future<void> _seleccionarFecha(BuildContext context, TextEditingController controller) async {
+  DateTime? picked = await showDatePicker(
+    context: context,
+    initialDate: DateTime.now(),
+    firstDate: DateTime(2025), // No necesitamos fechas muy viejas
+    lastDate: DateTime(2101),
+    locale: const Locale('es', 'ES'), // Si configuraste el soporte de idioma
+  );
+  
+  if (picked != null) {
+    setState(() {
+      // Formato YYYY-MM-DD (Ej: 2026-04-28)
+      controller.text = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+    });
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +91,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
                 _stepAfectacionVivienda(),
                 _stepCensoPoblacional(),
                 _stepNecesidades(),
+                
               ],
             ),
           ),
@@ -87,6 +105,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
       _buildTextField(_nroInformeCtrl, "Nro. de Informe"),
       _buildTextField(_propietarioCtrl, "Nombre del Propietario"),
       _buildTextField(_cedulaCtrl, "Cédula del Propietario"),
+      
       Row(children: [
         Expanded(child: _buildTextField(_edadCtrl, "Edad", isNumber: true)),
         const SizedBox(width: 10),
@@ -111,6 +130,20 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   Step _stepAfectacionVivienda() => Step(
     title: const Text("Afectación y Vivienda"),
     content: Column(children: [
+      _buildTextField(
+        _fechaSolicitudCtrl,
+        "Fecha de Solicitud",
+        readOnly: true, 
+        icon: Icons.calendar_today,
+        onTap: () => _seleccionarFecha(context, _fechaSolicitudCtrl),
+      ),
+      _buildTextField(
+        _fechaAfectacionCtrl,
+        "Fecha de la Afectación",
+        readOnly: true,
+        icon: Icons.event_note,
+        onTap: () => _seleccionarFecha(context, _fechaAfectacionCtrl),
+      ),
       DropdownButtonFormField(
         decoration: const InputDecoration(labelText: "Tipo de Afectación"),
         items: ['anegacion','inundacion','deslizamiento','otros'].map((t) => DropdownMenuItem(value: t, child: Text(t.toUpperCase()))).toList(),
@@ -128,6 +161,12 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
         decoration: const InputDecoration(labelText: "Tipo de Vivienda"),
         items: ['anarquica','improvisada','casa convencional'].map((t) => DropdownMenuItem(value: t, child: Text(t.toUpperCase()))).toList(),
         onChanged: (v) => setState(() => _tipoVivienda = v as String?),
+      ),
+      _buildTextField(
+        _descViviendaCtrl, 
+        "Descripción detallada de la vivienda", 
+        maxLines: 3,
+        icon: Icons.home_work, // Un icono para que se vea mejor
       ),
     ]),
   );
@@ -191,6 +230,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
       }, child: const Text("Añadir"))],
     ));
   }
+  
 
   Future<void> _enviarEdan() async {
     setState(() => _isLoading = true);
@@ -211,11 +251,14 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
         'lat': widget.datosIniciales['lat'],
         'lng': widget.datosIniciales['lng'],
         'nro_informe': _nroInformeCtrl.text,
+        "fecha_solicitud": _fechaSolicitudCtrl.text,
+        "fecha_afectacion": _fechaAfectacionCtrl.text,
         'descripcion_afectacion': _descAfectacionCtrl.text,
         'tipo_afectacion': _tipoAfectacion,
         'afectacion_otros': _afectacionOtrosCtrl.text,
         'condicion_vivienda': _condicionVivienda,
         'tipo_vivienda': _tipoVivienda,
+        "descripcion_vivienda": _descViviendaCtrl.text,
         'lact_Fem': lactFem, 'lact_Masc': lactMasc,
         'niños_Fem': ninosFem, 'niños_Masc': ninosMasc,
         'adultos_Fem': adultosFem, 'adultos_Masc': adultosMasc,
@@ -252,14 +295,28 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
     }
   }
 
-  Widget _buildTextField(TextEditingController ctrl, String label, {bool isNumber = false, int maxLines = 1}) {
+  Widget _buildTextField(
+    TextEditingController ctrl, 
+    String label, 
+    {bool isNumber = false, 
+    int maxLines = 1, 
+    bool readOnly = false, // Para bloquear el teclado
+    VoidCallback? onTap,    // Para detectar el toque
+    IconData? icon}         // Para el estilo visual
+  ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: TextFormField(
         controller: ctrl,
+        readOnly: readOnly,
+        onTap: onTap,
         keyboardType: isNumber ? TextInputType.number : TextInputType.text,
         maxLines: maxLines,
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon, color: Colors.orange.shade900) : null,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       ),
     );
   }

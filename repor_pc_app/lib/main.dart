@@ -5,8 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_map/flutter_map.dart'; 
-import 'package:latlong2/latlong.dart';     
+import 'package:latlong2/latlong.dart';      
 import 'edan_form.dart'; 
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // --- CONFIGURACIÓN GLOBAL ---
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
@@ -29,6 +30,14 @@ class ReporPCApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Protección Civil Carabobo',
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('es', 'ES'), // Español
+      ],
       theme: ThemeData(
         primaryColor: const Color(0xFF0033CC),
         scaffoldBackgroundColor: const Color(0xFFF5F5F5),
@@ -43,6 +52,7 @@ class ReporPCApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const LoginScreen(),
+        '/register': (context) => const RegisterPage(),
         '/dashboard': (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
           return DashboardScreen(userData: args['usuario'], token: args['token']);

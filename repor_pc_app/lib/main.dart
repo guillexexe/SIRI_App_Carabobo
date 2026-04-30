@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
 // const String apiUrl = "http://10.0.2.2:3000/api";
 // Opción C: Teléfono físico en la misma red WiFi que la PC
- const String apiUrl = "http://localhost:3000/api";
-//const String apiUrl = "http://192.168.68.101:3000/api"; // Usa TU IP real
+// const String apiUrl = "http://localhost:3000/api";
+const String apiUrl = "https://cd1478c79c41f404-190-6-34-29.serveousercontent.com/api"; // Usa TU IP real
 // const String apiUrl = ""; // Usa TU IP real
 
 void main() {
@@ -200,7 +200,9 @@ final prefs = await SharedPreferences.getInstance();
               const SizedBox(height: 15),
               
               // --- TÍTULOS ---
-              Text(
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child:Text(
                 "I.A.S.I.E.D.A.G.R.E.C.",
                 style: TextStyle(
                   fontSize: 35, 
@@ -208,7 +210,7 @@ final prefs = await SharedPreferences.getInstance();
                   color: azulInstitucional,
                   letterSpacing: 2,
                 ),
-              ),
+              ),),
               const Text(
                 "Sistema Integral de Reporte de Incidentes - Carabobo",
                 style: TextStyle(
@@ -539,7 +541,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // --- LÓGICA DE UBICACIÓN CON FEEDBACK VISUAL ---
   Future<void> _obtenerUbicacionYIrFormulario(BuildContext context, String tipoDestino) async {
-    setState(() => _isLocating = true);
+    final hasPermission = await _handleLocationPermission();
+  if (!hasPermission) return;
+  setState(() => _isLocating = true);
     
     // Mostrar un diálogo de carga
     showDialog(
@@ -620,6 +624,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     
   }
+  Future<bool> _handleLocationPermission() async {
+  bool serviceEnabled;
+  LocationPermission permission;
+
+  // 1. ¿Está el GPS encendido en el teléfono?
+  serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  if (!serviceEnabled) {
+    _showError("El GPS está desactivado. Por favor, actívalo.");
+    return false;
+  }
+
+  // 2. ¿Qué permisos tenemos?
+  permission = await Geolocator.checkPermission();
+  
+  if (permission == LocationPermission.denied) {
+    // Si están denegados, los pedimos por primera vez
+    permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied) {
+      _showError("Permiso de ubicación denegado.");
+      return false;
+    }
+  }
+
+  if (permission == LocationPermission.deniedForever) {
+    // Si el usuario marcó "No volver a preguntar"
+    _showError("Los permisos están bloqueados permanentemente en ajustes.");
+    return false;
+  }
+
+  return true;
+}
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -795,7 +830,7 @@ class _FormularioReporteState extends State<FormularioReporte> {
   XFile? _imagen;
   final ImagePicker _picker = ImagePicker();
   final TextEditingController _heridosController = TextEditingController(text: "0");
-final TextEditingController _fallecidosController = TextEditingController(text: "0");
+  final TextEditingController _fallecidosController = TextEditingController(text: "0");
   
   String? _idCatSeleccionada;
   String? _idTipoSeleccionado;
@@ -917,51 +952,104 @@ void _confirmarDatos() {
   )['nombre'];
 
   showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text("Confirmar Reporte"),
-        content: SingleChildScrollView(
-          child: ListBody(
+  context: context,
+  builder: (BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      title: Column(
+        children: [
+          Icon(Icons.assignment_turned_in, size: 40, color: Colors.orange[800]),
+          const SizedBox(height: 10),
+          const Text("Verificar Información", 
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold)
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _itemResumen("Ubicación", "${widget.datosIniciales['parroquia']}, ${widget.datosIniciales['municipio']}"),
-              _itemResumen("Tipo", tipoNombre),
-              _itemResumen("Descripción", _descController.text.isEmpty ? "Sin descripción" : _descController.text),
-              _itemResumen("Heridos", _heridosController.text),
+              const Divider(),
+              _itemResumen("Ubicación", "${widget.datosIniciales['parroquia']}, ${widget.datosIniciales['municipio']}", Icons.map),
+              _itemResumen("Tipo de Incidente", tipoNombre, Icons.category),
+              _itemResumen("Descripción", _descController.text.isEmpty ? "Sin descripción" : _descController.text, Icons.text_snippet),
+              const Divider(),
+              _itemResumen("Heridos", _heridosController.text, Icons.personal_injury),
               if (widget.datosIniciales['rol']?.toString().toLowerCase().trim() == 'oficial')
-                _itemResumen("Fallecidos", _fallecidosController.text),
-              _itemResumen("Evidencia", _imagen == null ? "No adjunta" : "Foto lista"),
+                _itemResumen("Fallecidos", _fallecidosController.text, Icons.hotel_class), // O un icono de luto
+              _itemResumen("Evidencia", _imagen == null ? "No adjunta" : "Foto cargada correctamente", Icons.camera_alt),
+              const Divider(),
+              const SizedBox(height: 10),
+              Text(
+                "¿Desea enviar este reporte ahora?",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey[700]),
+              ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), // Cierra el diálogo
-            child: const Text("CORREGIR", style: TextStyle(color: Colors.red)),
+      ),
+      actionsPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("CORREGIR", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context); // Cierra el diálogo
+            _enviarReporte(); // Llama a la función de envío
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange[800],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           ),
-          ElevatedButton(
-           onPressed: _enviarReporte,
-  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800]),
-  child: const Text("ENVIAR REPORTE", style: TextStyle(color: Colors.white)),
-),
-        ],
-      );
-    },
-  );
+          child: const Text("ENVIAR AHORA", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  },
+);
 }
 
 // Widget auxiliar para el estilo del resumen
-Widget _itemResumen(String label, String value) {
+Widget _itemResumen(String etiqueta, String valor, IconData icono) {
   return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4.0),
-    child: RichText(
-      text: TextSpan(
-        style: const TextStyle(color: Color.fromARGB(255, 255, 255, 255), fontSize: 14),
-        children: [
-          TextSpan(text: "$label: ", style: const TextStyle(fontWeight: FontWeight.bold)),
-          TextSpan(text: value),
-        ],
-      ),
+    padding: const EdgeInsets.symmetric(vertical: 6.0),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icono, size: 20, color: Colors.orange[900]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                etiqueta.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[600],
+                  letterSpacing: 1.1,
+                ),
+              ),
+              Text(
+                valor,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -1143,7 +1231,16 @@ class HistorialReportesPage extends StatefulWidget {
 class _HistorialReportesPageState extends State<HistorialReportesPage> {
   
   Future<List<dynamic>> _fetchHistorial() async {
-    final response = await http.get(Uri.parse("$apiUrl/incidentes/mis-reportes/${widget.idUsuario}"));
+    final prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString('session_token');
+    final userData = jsonDecode(prefs.getString('session_user')!);
+    final userId = userData['id'];
+    final response = await http.get(Uri.parse("$apiUrl/incidentes/mis-reportes/${widget.idUsuario}"),
+    headers: {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    },
+  );
     if (response.statusCode == 200) {
       return json.decode(response.body);
     } else {
@@ -1165,26 +1262,27 @@ class _HistorialReportesPageState extends State<HistorialReportesPage> {
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No has realizado reportes aún."));
           }
+          final reportes = snapshot.data ?? [];
 
           return ListView.builder(
             itemCount: snapshot.data!.length,
             itemBuilder: (context, index) {
-              final reporte = snapshot.data![index];
+              final r=reportes[index];
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 elevation: 3,
                 child: ListTile(
-                  leading: _getEstatusIcon(reporte['estatus_incidente']),
-                  title: Text("${reporte['nombre_incidente']}"),
+                  leading: _getEstatusIcon(r['estatus_incidente']),
+                  title: Text("${r['nombre_incidente']}"),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Fecha: ${reporte['created_at'].toString().substring(0, 10)}"),
-                      Text("Afectados: ${reporte['afectados']}"),
+                      Text("Fecha: ${r['created_at'].toString().substring(0, 10)}"),
+                      Text("Afectados: ${r['afectados']}"),
                     ],
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () => _mostrarDetalles(reporte),
+                  onTap: () => _mostrarDetalles(r),
                 
               ));
             },
@@ -1253,7 +1351,11 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
 
   Future<void> _cargarPuntos() async {
     try {
-      final response = await http.get(Uri.parse("$apiUrl/incidentes/mapa-global"));
+      final response = await http.get(Uri.parse("$apiUrl/incidentes/mapa-global"), headers: {
+        'User-Agent': 'SIRI_App_Carabobo',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         setState(() {
@@ -1273,7 +1375,10 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
             );
           }).toList();
         });
-      }
+        } else if (response.statusCode == 403) {
+      print("Error 403: El servidor o el túnel rechazó la petición.");
+    }
+      
     } catch (e) {
       print("Error cargando mapa: $e");
     }
@@ -1309,6 +1414,7 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
           TileLayer(
             urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
             subdomains: const ['a', 'b', 'c'],
+            userAgentPackageName: 'com.siri.app_carabobo',
           ),
           MarkerLayer(markers: _markers),
         ],

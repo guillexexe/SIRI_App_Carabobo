@@ -3,7 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const String apiUrl = "http://localhost:3000/api"; 
+//const String apiUrl = "http://localhost:3000/api"; 
+const String apiUrl = "https://cd1478c79c41f404-190-6-34-29.serveousercontent.com/api"; 
 
 class EdanFormScreen extends StatefulWidget {
   final Map<String, dynamic> datosIniciales;
@@ -19,7 +20,6 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // 1. IDENTIFICACIÓN Y PROPIETARIO
-  final _planillaCtrl = TextEditingController();
   final _nroInformeCtrl = TextEditingController();
   final _propietarioCtrl = TextEditingController();
   final _cedulaCtrl = TextEditingController();
@@ -102,8 +102,6 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   Step _stepIdentificacion() => Step(
     title: const Text("Identificación"),
     content: Column(children: [
-      _buildTextField(_planillaCtrl, "Nro. Planilla"),
-      _buildTextField(_nroInformeCtrl, "Nro. de Informe"),
       _buildTextField(_propietarioCtrl, "Nombre del Propietario"),
       _buildTextField(_cedulaCtrl, "Cédula del Propietario"),
       
@@ -237,7 +235,6 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
     setState(() => _isLoading = true);
     final edanData = {
         'id_oficial': widget.datosIniciales['id_usuario'],
-        'numero_planilla': _planillaCtrl.text,
         'propetario': _propietarioCtrl.text,
         'p_cedula': _cedulaCtrl.text,
         'P_edad': int.tryParse(_edadCtrl.text) ?? 0,

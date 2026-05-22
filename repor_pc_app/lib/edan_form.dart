@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 //const String apiUrl = "http://localhost:3000/api"; 
-const String apiUrl = "https://cd1478c79c41f404-190-6-34-29.serveousercontent.com/api"; 
+const String apiUrl = "https://87843f742e01172d-190-120-254-236.serveousercontent.com/api"; 
 
 class EdanFormScreen extends StatefulWidget {
   final Map<String, dynamic> datosIniciales;

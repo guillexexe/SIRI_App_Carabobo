@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
 // const String apiUrl = "http://10.0.2.2:3000/api";
 // Opción C: Teléfono físico en la misma red WiFi que la PC
-// const String apiUrl = "http://localhost:3000/api";
-const String apiUrl = "https://cd1478c79c41f404-190-6-34-29.serveousercontent.com/api"; // Usa TU IP real
+//const String apiUrl = "http://localhost:3000/api";
+const String apiUrl = "https://87843f742e01172d-190-120-254-236.serveousercontent.com/api"; // Usa TU IP real
 // const String apiUrl = ""; // Usa TU IP real
 
 void main() {
@@ -1267,24 +1267,31 @@ class _HistorialReportesPageState extends State<HistorialReportesPage> {
           return ListView.builder(
             itemCount: snapshot.data!.length,
             itemBuilder: (context, index) {
-              final r=reportes[index];
+              final r = reportes[index];
+              
+              // --- BLINDAJE DE LA FECHA ---
+              // Busca 'fecha' primero, si no está busca 'created_at'. Si ninguno existe, usa ''.
+              String fechaRaw = (r['fecha'] ?? r['created_at'] ?? '').toString();
+              // Solo corta los 10 caracteres si el texto es lo suficientemente largo
+              String fechaLimpia = fechaRaw.length >= 10 ? fechaRaw.substring(0, 10) : 'Fecha no disponible';
+
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 elevation: 3,
                 child: ListTile(
-                  leading: _getEstatusIcon(r['estatus_incidente']),
-                  title: Text("${r['nombre_incidente']}"),
+                  leading: _getEstatusIcon(r['estatus_incidente'] ?? r['estado']),
+                  title: Text("${r['nombre_incidente'] ?? r['tipo_nombre'] ?? 'Incidente'}"),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Fecha: ${r['created_at'].toString().substring(0, 10)}"),
-                      Text("Afectados: ${r['afectados']}"),
+                      Text("Fecha: $fechaLimpia"), // <-- ¡Aquí aplicamos la fecha segura!
+                      Text("Afectados: ${r['afectados'] ?? 'No especificado'}"),
                     ],
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                   onTap: () => _mostrarDetalles(r),
-                
-              ));
+                ),
+              );
             },
           );
         },
@@ -1339,7 +1346,6 @@ class MapaVivoPage extends StatefulWidget {
   @override
   State<MapaVivoPage> createState() => _MapaVivoPageState();
 }
-
 class _MapaVivoPageState extends State<MapaVivoPage> {
   List<Marker> _markers = [];
 
@@ -1351,51 +1357,86 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
 
   Future<void> _cargarPuntos() async {
     try {
-      final response = await http.get(Uri.parse("$apiUrl/incidentes/mapa-global"), headers: {
-        'User-Agent': 'SIRI_App_Carabobo',
-        'Accept': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 10));
+      final response = await http.get(
+        Uri.parse("$apiUrl/incidentes/mapa-global"), 
+        headers: {
+          'User-Agent': 'SIRI_App_Carabobo',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         setState(() {
           _markers = data.map((item) {
+            // EXTRACCIÓN SEGURA: Si lat o lng vienen nulos, asigna 0.0 temporalmente
+            double lat = double.tryParse(item['lat']?.toString() ?? '') ?? 0.0;
+            double lng = double.tryParse(item['lng']?.toString() ?? '') ?? 0.0;
+
             return Marker(
-              point: LatLng(double.parse(item['lat']), double.parse(item['lng'])),
+              point: LatLng(lat, lng),
               width: 40,
               height: 40,
               child: GestureDetector(
                 onTap: () => _mostrarMiniInfo(item),
                 child: Icon(
                   Icons.location_on,
-                  color: _getColorPorCategoria(item['categoria']),
+                  color: _determinarColorMarcador(item), 
                   size: 40,
                 ),
               ),
             );
           }).toList();
         });
-        } else if (response.statusCode == 403) {
-      print("Error 403: El servidor o el túnel rechazó la petición.");
-    }
+      } else if (response.statusCode == 403) {
+        print("Error 403: El servidor o el túnel rechazó la petición.");
+      }
       
     } catch (e) {
       print("Error cargando mapa: $e");
     }
   }
 
-  Color _getColorPorCategoria(String? cat) {
-    if (cat == null) return Colors.grey;
-    if (cat.contains("Vial")) return Colors.orange;
-    if (cat.contains("Incendio")) return Colors.red;
-    if (cat.contains("Médico")) return Colors.blue;
-    return Colors.red;
+  Color _determinarColorMarcador(dynamic item) {
+    // Buscamos el nombre de la categoría (puede venir como 'categoria' o 'slug')
+    String nombreCategoria = item['categoria']?.toString().toLowerCase() ?? 
+                             item['slug']?.toString().toLowerCase() ?? '';
+    String? hexColor;
+
+    // REGLA DE NEGOCIO: Si es clima, forzamos a que use el color del TIPO
+    if (nombreCategoria == 'clima' || nombreCategoria == 'climatológico') {
+      hexColor = item['color_tipo']?.toString(); 
+    } else {
+      // Para el resto, buscamos el color de la categoría.
+      // Cubrimos las opciones: que el backend lo envíe como 'color_categoria' o simplemente 'color'
+      hexColor = (item['color_categoria'] ?? item['color'] ?? item['color_tipo'])?.toString();
+    }
+
+    // Fallback de seguridad: Si todo falla o viene nulo, usamos el Naranja institucional
+    if (hexColor == null || hexColor.trim().isEmpty || hexColor == 'null') {
+      return const Color(0xFFFF8C00); 
+    }
+
+    // Limpiamos el hexadecimal (quitamos el '#' que trae la BD de Juan)
+    hexColor = hexColor.replaceAll('#', '');
+    
+    // Flutter necesita 8 caracteres (AARRGGBB). Le agregamos 'FF' al inicio para opacidad total.
+    if (hexColor.length == 6) {
+      hexColor = 'FF$hexColor'; 
+    }
+
+    try {
+      return Color(int.parse(hexColor, radix: 16));
+    } catch (e) {
+      // Si el color de la BD viene con un formato corrupto, no crashea, pone naranja.
+      return const Color(0xFFFF8C00); 
+    }
   }
 
   void _mostrarMiniInfo(dynamic item) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("${item['nombre_incidente']} (${item['estatus_incidente']})"),
+        content: Text("${item['nombre_incidente'] ?? 'Incidente'} (${item['estatus_incidente'] ?? 'Sin estatus'})"),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -1407,13 +1448,13 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
       appBar: AppBar(title: const Text("Mapa de Incidentes en Vivo")),
       body: FlutterMap(
         options: MapOptions(
-          center: LatLng(10.23, -67.96), // Coordenadas de Carabobo/Valencia
+          center: LatLng(10.23, -67.96), 
           zoom: 12.0,
         ),
         children: [
           TileLayer(
-            urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            subdomains: const ['a', 'b', 'c'],
+            // ADVERTENCIA OSM CORREGIDA: Se eliminó {s}. y la lista de subdomains
+            urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             userAgentPackageName: 'com.siri.app_carabobo',
           ),
           MarkerLayer(markers: _markers),

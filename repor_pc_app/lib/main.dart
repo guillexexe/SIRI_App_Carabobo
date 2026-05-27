@@ -9,13 +9,15 @@ import 'package:latlong2/latlong.dart';
 import 'edan_form.dart'; 
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'recuperar_password_page.dart';
 
 // --- CONFIGURACIÓN GLOBAL ---
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
 // const String apiUrl = "http://10.0.2.2:3000/api";
 // Opción C: Teléfono físico en la misma red WiFi que la PC
-//const String apiUrl = "http://localhost:3000/api";
-const String apiUrl = "https://87843f742e01172d-190-120-254-236.serveousercontent.com/api"; // Usa TU IP real
+// const String apiUrl = "http://localhost:3000/api";
+// Producción / túnel del compañero (desplegar edan.js actualizado antes de usarlo):
+const String apiUrl = "https://38a64610bdbb907a-190-120-254-236.serveousercontent.com/api";
 // const String apiUrl = ""; // Usa TU IP real
 
 void main() {
@@ -278,7 +280,28 @@ final prefs = await SharedPreferences.getInstance();
               ),
               
               const SizedBox(height: 25),
+              Align(
+  alignment: Alignment.centerRight,
+  child: TextButton(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const RecuperarPasswordPage(),
+        ),
+      );
+    },
+    child: Text(
+      "¿Olvidó su contraseña?",
+      style: TextStyle(
+        color: Colors.orange.shade900, // A juego con la temática de Protección Civil
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+  ),
+),
 
+const SizedBox(height: 24),
               // --- ENLACE A REGISTRO ---
               TextButton(
                 onPressed: () { 
@@ -408,7 +431,7 @@ class _RegisterPageState extends State<RegisterPage> {
           child: Column(
             children: [
               // Icono o Logo arriba
-              Image.asset('assets/images/logo_pc.jpeg', height: 100),
+              Image.asset('assets/images/IASIEDAGREC.jpeg', height: 100),
               const SizedBox(height: 20),
               _buildField("Nombre", _nombreController, Icons.person),
               _buildField("Apellido", _apellidoController, Icons.person_outline),
@@ -586,9 +609,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final addr = data['address'];
-        municipio = addr['county'] ?? addr['city'] ?? addr['town'] ?? "Valencia";
-        parroquia = addr['suburb'] ?? addr['neighbourhood'] ?? addr['village'] ?? "Sin nombre";
-        via = addr['road'] ?? addr['amenity'] ?? addr['pedestrian'] ?? "Vía no identificada";
+        if (addr is Map<String, dynamic>) {
+          municipio = addr['county'] ?? addr['city'] ?? addr['town'] ?? "Valencia";
+          parroquia = addr['suburb'] ?? addr['neighbourhood'] ?? addr['village'] ?? "Sin nombre";
+          via = addr['road'] ?? addr['amenity'] ?? addr['pedestrian'] ?? "Vía no identificada";
+        }
       }
 
       if (!mounted) return;
@@ -604,7 +629,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'rol': widget.userData['rol'],
     };
     if (tipoDestino == 'EDAN') {
-      proximaPantalla = EdanFormScreen(datosIniciales: datos);
+      proximaPantalla = EdanFormScreen(datosIniciales: datos, apiUrl: apiUrl);
     } else {
       proximaPantalla = FormularioReporte(datosIniciales: datos);
     }
@@ -702,11 +727,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             child: Column(
               children: [
-                CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.white,
-                  child: Image.asset('assets/images/IASIEDAGREC.jpeg', height: 60),
-                ),
+Container(
+  height: 80, // Mismo tamaño aproximado que el CircleAvatar original (radius * 2)
+  width: 80,
+  padding: const EdgeInsets.all(5), // Pequeño margen interno opcional
+  decoration: const BoxDecoration(
+    color: Color.fromARGB(255, 248, 247, 247), // <--- Forzamos la transparencia total aquí
+    shape: BoxShape.circle,
+  ),
+  child: ClipRRect(
+    // ClipRRect asegura un recorte circular perfecto de cualquier borde fantasma
+    borderRadius: BorderRadius.circular(40),
+    child: Image.asset(
+      'assets/images/IASIEDAGREC.jpeg',
+      fit: BoxFit.contain, // Asegura que el logo no se corte y mantenga su proporción
+    ),
+  ),
+),
                 const SizedBox(height: 15),
                 Text(
                   "Bienvenido, $nombre",
@@ -1109,10 +1146,16 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
 
             // Selector de Tipo de Incidente (Obligatorio)
             DropdownButtonFormField<String>(
-              value: (_tiposFiltrados.any((t) => t['id'].toString() == _idTipoSeleccionado)) 
-         ? _idTipoSeleccionado 
-         : null, 
-  decoration: const InputDecoration(labelText: "Tipo de Incidente", border: OutlineInputBorder()),
+              value: (_tiposFiltrados.isNotEmpty && 
+                      _tiposFiltrados.any((t) => t['id'].toString() == _idTipoSeleccionado)) 
+                      ? _idTipoSeleccionado 
+                      : null,
+  decoration: const InputDecoration(
+    labelText: "Tipo de Incidente", 
+    border: OutlineInputBorder(),
+    // Agregamos un hint por si el valor es nulo
+    hintText: "Seleccione un tipo..."
+  ),
   items: _tiposFiltrados.map((t) => DropdownMenuItem(
     value: t['id'].toString(), 
     child: Text(t['nombre'])
@@ -1315,16 +1358,19 @@ class _HistorialReportesPageState extends State<HistorialReportesPage> {
       isScrollControlled: true,
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
-        height: MediaQuery.of(context).size.height * 0.4,
+        height: MediaQuery.of(context).size.height * 0.5, 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(reporte['nombre_incidente'], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text(
+              reporte['nombre_incidente'] ?? reporte['tipo_nombre'] ?? 'Incidente sin nombre', 
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+            ),
             const Divider(),
             Text("Descripción: ${reporte['descripcion'] ?? 'Sin detalle'}"),
             const SizedBox(height: 10),
-            Text("Heridos: ${reporte['heridos']}"),
-            Text("Fallecidos: ${reporte['fallecidos']}"),
+            Text("Heridos: ${reporte['heridos'] ?? reporte['heridos_cierre'] ?? '0'}"),
+            Text("Fallecidos: ${reporte['fallecidos'] ?? reporte['fallecidos_cierre'] ?? '0'}"),
             const Spacer(),
             SizedBox(
               width: double.infinity,
@@ -1348,6 +1394,8 @@ class MapaVivoPage extends StatefulWidget {
 }
 class _MapaVivoPageState extends State<MapaVivoPage> {
   List<Marker> _markers = [];
+  bool _mostrarLeyenda = true; // Controla si se ve o se oculta la leyenda
+  List<Map<String, dynamic>> _categoriasLeyenda = [];
 
   @override
   void initState() {
@@ -1367,9 +1415,40 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
+        
+        // --- PROCESAMIENTO DINÁMICO DE LA LEYENDA ---
+        final Map<String, Color> mapeoUnico = {};
+        
+        for (var item in data) {
+          String catNombre = item['categoria']?.toString() ?? item['slug']?.toString() ?? 'Otros';
+          String nombreLower = catNombre.toLowerCase();
+          
+          // REGLA DE NEGOCIO: Si es clima, el nombre descriptivo real está en el Tipo de incidente
+          String labelFinal = (nombreLower == 'clima' || nombreLower == 'climatológico')
+              ? (item['tipo_nombre']?.toString() ?? 'Clima')
+              : catNombre;
+
+          // Capitalizamos la primera letra para que se vea estético en la UI
+          if (labelFinal.isNotEmpty) {
+            labelFinal = labelFinal[0].toUpperCase() + labelFinal.substring(1);
+          }
+
+          // Si este nombre aún no está en nuestro mapa de leyendas, lo agregamos con su color real
+          if (!mapeoUnico.containsKey(labelFinal)) {
+            // Usamos tu función para garantizar que el color del marcador y el de la leyenda sean EXACTAMENTE el mismo
+            mapeoUnico[labelFinal] = _determinarColorMarcador(item);
+          }
+        }
+
         setState(() {
+          // Convertimos el mapa de elementos únicos a la lista formateada para el widget
+          _categoriasLeyenda = mapeoUnico.entries.map((e) => {
+            'nombre': e.key,
+            'color': e.value
+          }).toList();
+
+          // Cargamos tus marcadores tal y como los tenías
           _markers = data.map((item) {
-            // EXTRACCIÓN SEGURA: Si lat o lng vienen nulos, asigna 0.0 temporalmente
             double lat = double.tryParse(item['lat']?.toString() ?? '') ?? 0.0;
             double lng = double.tryParse(item['lng']?.toString() ?? '') ?? 0.0;
 
@@ -1434,10 +1513,86 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
   }
 
   void _mostrarMiniInfo(dynamic item) {
+    // 1. Buscamos el nombre del incidente usando todas las variantes que envía el backend
+    String nombre = item['tipo_nombre'] ?? item['nombre_incidente'] ?? item['categoria'] ?? 'Incidente';
+    // 2. Buscamos el estatus o estado (en tu backend suele venir como 'estado')
+    String estatus = item['estado'] ?? item['estatus_incidente'] ?? item['estatus'] ?? 'Activo';
+    // 3. Extraemos la vía o sector para darle más sustancia al SnackBar
+    String lugar = item['via'] != null ? " en ${item['via']}" : "";
+    ScaffoldMessenger.of(context).removeCurrentSnackBar(); // Limpia el SnackBar anterior de inmediato
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("${item['nombre_incidente'] ?? 'Incidente'} (${item['estatus_incidente'] ?? 'Sin estatus'})"),
-        duration: const Duration(seconds: 2),
+        content: Text("$nombre ($estatus)$lugar"),
+        backgroundColor: const Color(0xFF003194), // Azul institucional para que combine
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating, // Lo hace flotar sobre el mapa, se ve más moderno
+      ),
+    );
+  }
+
+  @override
+  // --- NUEVO WIDGET: LEYENDA FLOTANTE ---
+  Widget _buildLeyendaFlotante() {
+    // Si el backend no ha devuelto datos o está vacío, no pintamos nada
+    if (_categoriasLeyenda.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      width: 180, // Ancho fijo para que se vea ordenado
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95), 
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Leyenda de Incidentes",
+            style: TextStyle(
+              fontWeight: FontWeight.bold, 
+              fontSize: 13, 
+              color: Color(0xFF003194)
+            ),
+          ),
+          const Divider(height: 10, thickness: 1),
+          
+          // Mapeo dinámico desde la BD de Juan
+          ..._categoriasLeyenda.map((cat) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: cat['color'] as Color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      cat['nombre'] as String,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.black87),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis, // Si el tipo es muy largo, no rompe la UI
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
       ),
     );
   }
@@ -1445,19 +1600,66 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Mapa de Incidentes en Vivo")),
-      body: FlutterMap(
-        options: MapOptions(
-          center: LatLng(10.23, -67.96), 
-          zoom: 12.0,
-        ),
+      appBar: AppBar(
+        title: const Text("Mapa de Incidentes en Vivo"),
+        backgroundColor: const Color(0xFF003194),
+      ),
+      body: Stack(
         children: [
-          TileLayer(
-            // ADVERTENCIA OSM CORREGIDA: Se eliminó {s}. y la lista de subdomains
-            urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-            userAgentPackageName: 'com.siri.app_carabobo',
+          // Capa 1: El Mapa
+          FlutterMap(
+            options: MapOptions(
+              center: LatLng(10.23, -67.96), 
+              zoom: 12.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                userAgentPackageName: 'com.siri.app_carabobo',
+              ),
+              MarkerLayer(markers: _markers),
+            ],
           ),
-          MarkerLayer(markers: _markers),
+          
+          // Capa 2: Panel de Control de la Leyenda Flotante (Abajo a la Izquierda)
+          Positioned(
+            bottom: 16,
+            left: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Animación suave de aparición/desaparición
+                AnimatedOpacity(
+                  opacity: _mostrarLeyenda ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 250),
+                  child: _mostrarLeyenda ? _buildLeyendaFlotante() : const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 8),
+                
+                // Botón Conmutador de la Leyenda
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: FloatingActionButton(
+                    heroTag: "btn_leyenda", // Evita conflictos si hay más FABs
+                    backgroundColor: const Color(0xFF003194),
+                    elevation: 4,
+                    child: Icon(
+                      _mostrarLeyenda ? Icons.layers_clear : Icons.layers, 
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _mostrarLeyenda = !_mostrarLeyenda;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

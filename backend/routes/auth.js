@@ -13,10 +13,50 @@ const telefonoRegex = /^04\d{9}$/
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+function estatusEsActivo(estatusRaw) {
+  const est = String(estatusRaw || '')
+    .trim()
+    .toLowerCase()
+  return est === 'activo' || est === 'aprobado' || est === 'pendiente'
+}
+
+function estatusUiDesdeDb(estatusRaw) {
+  return estatusEsActivo(estatusRaw) ? 'activo' : 'inactivo'
+}
+
 function authTokenDesdeHeader(req) {
   const auth = req.headers.authorization || ''
   if (!auth.startsWith('Bearer ')) return null
   return auth.slice(7)
+}
+
+/** Bearer JWT: expone `req.userId` para rutas protegidas (app móvil). */
+export function verifyToken(req, res, next) {
+  const token = authTokenDesdeHeader(req)
+  if (!token) {
+    return res.status(401).json({ error: 'Token no proporcionado.' })
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    const id = decoded?.id
+    if (id == null || !Number.isFinite(Number(id))) {
+      return res.status(403).json({ error: 'Token inválido o expirado.' })
+    }
+    req.userId = Number(id)
+    next()
+  } catch {
+    return res.status(403).json({ error: 'Token inválido o expirado.' })
+  }
+}
+
+/** La app puede enviar "civil"; en BD el rol es `ciudadano`. No se permite alta como admin por esta vía. */
+function rolDesdeApp(rolRaw) {
+  const r = String(rolRaw ?? '')
+    .trim()
+    .toLowerCase()
+  if (r === 'civil' || r === 'ciudadano' || r === '') return 'ciudadano'
+  if (r === 'oficial') return 'oficial'
+  return 'ciudadano'
 }
 
 async function requireAdmin(req, res, next) {
@@ -27,7 +67,7 @@ async function requireAdmin(req, res, next) {
     const [rows] = await pool.query('SELECT id, rol, estatus FROM usuarios WHERE id = ?', [payload.id])
     if (!rows.length) return res.status(401).json({ error: 'No autorizado.' })
     const u = rows[0]
-    if (u.estatus !== 'activo') return res.status(403).json({ error: 'Usuario inactivo.' })
+    if (!estatusEsActivo(u.estatus)) return res.status(403).json({ error: 'Usuario inactivo.' })
     if (u.rol !== 'admin') return res.status(403).json({ error: 'Acceso solo para administrador.' })
     req.authUser = { id: u.id, rol: u.rol }
     next()
@@ -92,7 +132,7 @@ router.post('/registro', requireAdmin, async (req, res) => {
     await pool.query(
       `INSERT INTO usuarios
        (nombre, apellido, correo, cedula, telefono, rol, estatus, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?, 'activo', ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, 'aprobado', ?)`,
       [nombre, apellido, correo, cedula, telefono, rol, password_hash]
     )
     res.status(201).json({ message: 'Usuario registrado correctamente.' })
@@ -108,13 +148,19 @@ router.get('/usuarios', requireAdmin, async (req, res) => {
     let sql =
       'SELECT id, nombre, apellido, correo, cedula, telefono, rol, estatus, created_at FROM usuarios'
     const params = []
-    if (estatus === 'activo' || estatus === 'inactivo') {
-      sql += ' WHERE estatus = ?'
-      params.push(estatus)
+    if (estatus === 'activo') {
+      sql += " WHERE estatus IN ('activo', 'aprobado')"
+    } else if (estatus === 'inactivo') {
+      sql += " WHERE estatus IN ('inactivo', 'bloqueado', 'pendiente')"
     }
     sql += ' ORDER BY created_at DESC'
     const [rows] = await pool.query(sql, params)
-    res.json(rows)
+    res.json(
+      rows.map((u) => ({
+        ...u,
+        estatus: estatusUiDesdeDb(u.estatus),
+      }))
+    )
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Error al consultar usuarios.' })
@@ -132,7 +178,8 @@ router.patch('/usuarios/:id/estatus', requireAdmin, async (req, res) => {
     if (id === req.authUser.id) {
       return res.status(400).json({ error: 'No puede cambiar su propio estatus.' })
     }
-    const [result] = await pool.query('UPDATE usuarios SET estatus = ? WHERE id = ?', [estatus, id])
+    const estatusDb = estatus === 'activo' ? 'aprobado' : 'bloqueado'
+    const [result] = await pool.query('UPDATE usuarios SET estatus = ? WHERE id = ?', [estatusDb, id])
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado.' })
     }
@@ -140,6 +187,87 @@ router.patch('/usuarios/:id/estatus', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: 'Error al actualizar estatus del usuario.' })
+  }
+})
+
+/** Registro desde app móvil (sin sesión admin). Usuario queda `pendiente` hasta aprobación. */
+router.post('/register-app', async (req, res) => {
+  try {
+    const { nombre, apellido, correo, cedula, telefono, password, rol } = req.body
+
+    if (!nombre || !String(nombre).trim()) {
+      return res.status(400).json({ error: 'El nombre es requerido.' })
+    }
+    if (!apellido || !String(apellido).trim()) {
+      return res.status(400).json({ error: 'El apellido es requerido.' })
+    }
+    if (!correo || !password || !cedula || !telefono) {
+      return res.status(400).json({
+        error: 'Faltan campos obligatorios (correo, cédula, teléfono o contraseña).',
+      })
+    }
+
+    const correoNorm = correo.toString().trim().toLowerCase()
+    if (!emailRegex.test(correoNorm)) {
+      return res.status(400).json({ error: 'El correo no tiene un formato válido.' })
+    }
+
+    const cedulaNorm = cedula.toString().replace(/\s/g, '').toUpperCase()
+    if (!cedulaRegex.test(cedulaNorm)) {
+      return res.status(400).json({
+        error: 'La cédula debe ser tipo V, J o E seguido de 6 a 9 dígitos.',
+      })
+    }
+
+    const telNorm = telefono.toString().replace(/\s/g, '')
+    if (!telefonoRegex.test(telNorm)) {
+      return res.status(400).json({
+        error:
+          'El teléfono debe ser móvil Venezuela: 04xx más 7 dígitos (11 dígitos en total).',
+      })
+    }
+
+    if (String(password).length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+      })
+    }
+
+    const [existe] = await pool.query(
+      'SELECT id FROM usuarios WHERE correo = ? OR cedula = ?',
+      [correoNorm, cedulaNorm]
+    )
+    if (existe.length > 0) {
+      return res.status(400).json({ error: 'El correo o la cédula ya están registrados.' })
+    }
+
+    const [telDup] = await pool.query('SELECT id FROM usuarios WHERE telefono = ?', [telNorm])
+    if (telDup.length > 0) {
+      return res.status(400).json({ error: 'Ya existe un usuario con ese número de teléfono.' })
+    }
+
+    const rolDb = rolDesdeApp(rol)
+    const password_hash = await bcrypt.hash(password, SALT_ROUNDS)
+
+    await pool.query(
+      `INSERT INTO usuarios
+       (nombre, apellido, correo, cedula, telefono, rol, estatus, password_hash)
+       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
+      [
+        nombre.toString().trim(),
+        apellido.toString().trim(),
+        correoNorm,
+        cedulaNorm,
+        telNorm,
+        rolDb,
+        password_hash,
+      ]
+    )
+
+    res.status(201).json({ ok: true, message: 'Usuario de la App registrado con éxito.' })
+  } catch (err) {
+    console.error('Error en register-app:', err)
+    res.status(500).json({ error: 'Error interno del servidor.' })
   }
 })
 
@@ -163,8 +291,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciales incorrectas.' })
     }
     const user = rows[0]
-    if (user.estatus === 'pendiente') {
-      return res.status(403).json({ error: 'Usuario pendiente de aprobación. Contacte al administrador.' })
+    if (!estatusEsActivo(user.estatus)) {
+      return res.status(403).json({ error: 'Usuario inactivo. Contacte al administrador.' })
     }
     const match = await bcrypt.compare(password, user.password_hash)
     if (!match) {
@@ -186,7 +314,7 @@ router.post('/login', async (req, res) => {
         cedula: user.cedula,
         telefono: user.telefono,
         rol: user.rol,
-        estatus: user.estatus,
+        estatus: estatusUiDesdeDb(user.estatus),
       },
     })
   } catch (err) {
@@ -195,96 +323,215 @@ router.post('/login', async (req, res) => {
   }
 })
 
-////rutas para la app móvil (registro sin token, solo con validaciones básicas, rol civil u oficial según lo que envíe la app, estatus activo por defecto)
-router.post('/register-app', async (req, res) => {
-  try {
-    const { nombre, apellido, correo, cedula, telefono, password, rol } = req.body;
-
-    // Validaciones básicas rápidas
-    if (!correo || !password || !cedula) {
-      return res.status(400).json({ error: 'Faltan campos obligatorios (correo, cédula o password).' });
-    }
-
-    const correoNorm = correo.toString().trim().toLowerCase();
-    const cedulaNorm = cedula.toString().trim().toUpperCase();
-
-    // Verificar si ya existe
-    const [existe] = await pool.query(
-      'SELECT id FROM usuarios WHERE correo = ? OR cedula = ?', 
-      [correoNorm, cedulaNorm]
-    );
-
-    if (existe.length > 0) {
-      return res.status(400).json({ error: 'El correo o la cédula ya están registrados.' });
-    }
-
-    const password_hash = await bcrypt.hash(password, 10);
-    
-    // Insertar (por defecto estatus activo y el rol que venga de la app o 'civil')
-    await pool.query(
-      `INSERT INTO usuarios 
-       (nombre, apellido, correo, cedula, telefono, rol, estatus, password_hash) 
-       VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
-      [nombre, apellido, correoNorm, cedulaNorm, telefono, rol || 'civil', password_hash]
-    );
-
-    res.status(201).json({ ok: true, message: 'Usuario de la App registrado con éxito.' });
-  } catch (err) {
-    console.error('Error en register-app:', err);
-    res.status(500).json({ error: 'Error interno del servidor.' });
-  }
-});
-
-// Middleware para proteger rutas (solo el usuario logueado accede)
-export function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Token no proporcionado' });
-
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Token inválido o expirado' });
-    req.userId = decoded.id; // Guardamos el ID del usuario para usarlo en la consulta
-    next();
-  });
-}
-
-// RUTA: Actualizar perfil
 router.put('/update-profile', verifyToken, async (req, res) => {
-  const { nombre, apellido, telefono } = req.body;
-  const id = req.userId;
+  const { nombre, apellido, telefono } = req.body
+  const id = req.userId
+
+  if (!nombre || !String(nombre).trim() || !apellido || !String(apellido).trim()) {
+    return res.status(400).json({ error: 'Nombre y apellido son requeridos.' })
+  }
+  const telNorm =
+    telefono != null && String(telefono).trim()
+      ? String(telefono).replace(/\s/g, '')
+      : null
+  if (!telNorm || !telefonoRegex.test(telNorm)) {
+    return res.status(400).json({
+      error:
+        'El teléfono debe ser móvil Venezuela: 04xx más 7 dígitos (11 dígitos en total).',
+    })
+  }
 
   try {
+    const [otros] = await pool.query(
+      'SELECT id FROM usuarios WHERE telefono = ? AND id <> ?',
+      [telNorm, id]
+    )
+    if (otros.length > 0) {
+      return res.status(400).json({ error: 'Ese número de teléfono ya está en uso.' })
+    }
+
     await pool.query(
       'UPDATE usuarios SET nombre = ?, apellido = ?, telefono = ? WHERE id = ?',
-      [nombre, apellido, telefono, id]
-    );
-    res.json({ ok: true, message: 'Perfil actualizado correctamente' });
+      [nombre.toString().trim(), apellido.toString().trim(), telNorm, id]
+    )
+    res.json({ ok: true, message: 'Perfil actualizado correctamente' })
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error al actualizar el perfil' });
+    console.error(err)
+    res.status(500).json({ error: 'Error al actualizar el perfil' })
   }
-});
+})
 
 router.put('/change-password', verifyToken, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  const userId = req.userId;
+  const { currentPassword, newPassword } = req.body
+  const userId = req.userId
+
+  if (
+    currentPassword == null ||
+    String(currentPassword).length === 0 ||
+    newPassword == null ||
+    String(newPassword).length < MIN_PASSWORD_LENGTH
+  ) {
+    return res.status(400).json({
+      error: `Contraseña actual y nueva contraseña (mínimo ${MIN_PASSWORD_LENGTH} caracteres).`,
+    })
+  }
 
   try {
-    // 1. Buscar al usuario
-    const [rows] = await pool.query('SELECT password_hash FROM usuarios WHERE id = ?', [userId]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const [rows] = await pool.query('SELECT password_hash FROM usuarios WHERE id = ?', [
+      userId,
+    ])
+    if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' })
 
-    // 2. Validar contraseña actual
-    const match = await bcrypt.compare(currentPassword, rows[0].password_hash);
-    if (!match) return res.status(401).json({ error: 'La contraseña actual es incorrecta' });
+    const match = await bcrypt.compare(currentPassword, rows[0].password_hash)
+    if (!match) return res.status(401).json({ error: 'La contraseña actual es incorrecta' })
 
-    // 3. Hashear y actualizar
-    const newHash = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, userId]);
+    const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS)
+    await pool.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [newHash, userId])
 
-    res.json({ ok: true, message: 'Contraseña actualizada con éxito' });
+    res.json({ ok: true, message: 'Contraseña actualizada con éxito' })
   } catch (err) {
-    res.status(500).json({ error: 'Error interno del servidor' });
+    console.error(err)
+    res.status(500).json({ error: 'Error interno del servidor' })
   }
-});
+})
+
+// CONFIGURACIÓN DE NODEMAILER PARA RECUPERACIÓN DE CONTRASEÑA
+import nodemailer from 'nodemailer'
+
+const getMailTransporter = () => {
+  const host = process.env.SMTP_HOST || 'smtp.gmail.com'
+  const port = parseInt(process.env.SMTP_PORT || '465', 10)
+  const user = process.env.SMTP_USER || 'prueba1@gmail.com'
+  const pass = process.env.SMTP_PASS || ''
+  const secure = process.env.SMTP_SECURE === 'false' ? false : true
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass
+    }
+  })
+}
+
+// 1. SOLICITAR CÓDIGO DE RECUPERACIÓN
+router.post('/solicitar-codigo', async (req, res) => {
+  try {
+    const { correo } = req.body
+    if (!correo) {
+      return res.status(400).json({ error: 'El correo electrónico es requerido.' })
+    }
+    const correoNorm = correo.toString().trim().toLowerCase()
+    if (!emailRegex.test(correoNorm)) {
+      return res.status(400).json({ error: 'El correo electrónico no tiene un formato válido.' })
+    }
+
+    // Buscar si existe el usuario
+    const [usuarios] = await pool.query('SELECT id, nombre, apellido FROM usuarios WHERE correo = ?', [correoNorm])
+    if (usuarios.length === 0) {
+      // Por seguridad, para evitar enumeración de usuarios, devolvemos un mensaje genérico de éxito,
+      // pero en este caso de Protección Civil podemos ser más directos.
+      return res.status(404).json({ error: 'No existe ningún usuario registrado con ese correo.' })
+    }
+
+    const usuario = usuarios[0]
+    // Generar código numérico aleatorio de 6 dígitos
+    const codigo = Math.floor(100000 + Math.random() * 900000).toString()
+    // Expiración en 15 minutos (900,000 milisegundos)
+    const expiracion = new Date(Date.now() + 15 * 60 * 1000)
+
+    // Guardar el código y la expiración en la base de datos
+    await pool.query(
+      'UPDATE usuarios SET codigo_recuperacion = ?, expiracion_codigo = ? WHERE id = ?',
+      [codigo, expiracion, usuario.id]
+    )
+
+    // Enviar el correo
+    const transporter = getMailTransporter()
+    const mailOptions = {
+      from: `"Protección Civil Carabobo" <${process.env.SMTP_USER || 'no-reply@proteccioncivil.gob.ve'}>`,
+      to: correoNorm,
+      subject: 'Código de Recuperación de Contraseña — Protección Civil',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #dde5ef; border-radius: 8px; background-color: #f2f6fb;">
+          <h2 style="color: #0033CC; text-align: center;">Protección Civil Carabobo</h2>
+          <p>Hola <strong>${usuario.nombre} ${usuario.apellido}</strong>,</p>
+          <p>Hemos recibido una solicitud para restablecer la contraseña de acceso a tu cuenta.</p>
+          <div style="background-color: #ffffff; border: 2px dashed #FF8000; padding: 15px; text-align: center; margin: 20px 0; border-radius: 8px;">
+            <p style="font-size: 14px; margin: 0; color: #4a4a55;">Tu código de verificación de 6 dígitos es:</p>
+            <h1 style="font-size: 36px; margin: 10px 0; color: #800000; letter-spacing: 5px;">${codigo}</h1>
+            <p style="font-size: 12px; margin: 0; color: #800000;">Este código expirará en 15 minutos.</p>
+          </div>
+          <p style="font-size: 13px; color: #4a4a55;">Si no has solicitado este cambio, por favor ignora este correo electrónico.</p>
+          <hr style="border: 0; border-top: 1px solid #dde5ef; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #854d0e; text-align: center;">Sistema de Emergencias e Incidentes — Estado Carabobo</p>
+        </div>
+      `
+    }
+
+    await transporter.sendMail(mailOptions)
+
+    res.json({ ok: true, message: 'Código de recuperación enviado con éxito a su correo.' })
+  } catch (err) {
+    console.error('Error al solicitar código de recuperación:', err)
+    res.status(500).json({ error: 'Error al enviar el correo de recuperación. Verifique la configuración del servidor SMTP.' })
+  }
+})
+
+// 2. VERIFICAR CÓDIGO Y ESTABLECER NUEVA CONTRASEÑA
+router.post('/cambiar-password', async (req, res) => {
+  try {
+    const { correo, codigo, password } = req.body
+
+    if (!correo || !codigo || !password) {
+      return res.status(400).json({ error: 'El correo, el código de verificación y la nueva contraseña son requeridos.' })
+    }
+
+    const correoNorm = correo.toString().trim().toLowerCase()
+    const codigoNorm = codigo.toString().trim()
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({ error: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.` })
+    }
+
+    // Buscar al usuario que tenga el código y que no haya expirado
+    const [usuarios] = await pool.query(
+      'SELECT id, codigo_recuperacion, expiracion_codigo FROM usuarios WHERE correo = ?',
+      [correoNorm]
+    )
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' })
+    }
+
+    const usuario = usuarios[0]
+
+    // Validar el código de recuperación
+    if (!usuario.codigo_recuperacion || usuario.codigo_recuperacion !== codigoNorm) {
+      return res.status(400).json({ error: 'El código de verificación es incorrecto.' })
+    }
+
+    // Validar expiración
+    const ahora = new Date()
+    const expiracion = new Date(usuario.expiracion_codigo)
+    if (ahora > expiracion) {
+      return res.status(400).json({ error: 'El código de verificación ha expirado. Por favor, solicite uno nuevo.' })
+    }
+
+    // Todo correcto: Encriptar nueva contraseña y actualizar
+    const password_hash = await bcrypt.hash(password, SALT_ROUNDS)
+    await pool.query(
+      'UPDATE usuarios SET password_hash = ?, codigo_recuperacion = NULL, expiracion_codigo = NULL WHERE id = ?',
+      [password_hash, usuario.id]
+    )
+
+    res.json({ ok: true, message: 'Su contraseña ha sido restablecida con éxito.' })
+  } catch (err) {
+    console.error('Error al restablecer contraseña:', err)
+    res.status(500).json({ error: 'Error interno del servidor al intentar cambiar la contraseña.' })
+  }
+})
 
 export default router

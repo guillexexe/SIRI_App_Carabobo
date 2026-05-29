@@ -16,9 +16,9 @@ import 'recuperar_password_page.dart';
 // const String apiUrl = "http://10.0.2.2:3000/api";
 // Opción C: Teléfono físico en la misma red WiFi que la PC
 // const String apiUrl = "http://localhost:3000/api";
-// Producción / túnel del compañero (desplegar edan.js actualizado antes de usarlo):
+// Producción / túnel:
 const String apiUrl = "https://38a64610bdbb907a-190-120-254-236.serveousercontent.com/api";
-// const String apiUrl = ""; // Usa TU IP real
+// const String apiUrl = ""; // Usa la IP real
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1121,11 +1121,24 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
             
             // Selector de Categoría
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: _idCatSeleccionada,
               decoration: const InputDecoration(labelText: "Filtrar por Categoría", border: OutlineInputBorder()),
               items: [
-                const DropdownMenuItem(value: null, child: Text("Todas las categorías")),
-                ..._categorias.map((c) => DropdownMenuItem(value: c['id'].toString(), child: Text(c['nombre']))),
+                const DropdownMenuItem(
+                  value: null,
+                  child: Text("Todas las categorías", overflow: TextOverflow.ellipsis, maxLines: 1),
+                ),
+                ..._categorias.map(
+                  (c) => DropdownMenuItem(
+                    value: c['id'].toString(),
+                    child: Text(
+                      c['nombre'],
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
               ],
               onChanged: _filtrarPorCategoria,
             ),
@@ -1146,6 +1159,7 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
 
             // Selector de Tipo de Incidente (Obligatorio)
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: (_tiposFiltrados.isNotEmpty && 
                       _tiposFiltrados.any((t) => t['id'].toString() == _idTipoSeleccionado)) 
                       ? _idTipoSeleccionado 
@@ -1158,7 +1172,11 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
   ),
   items: _tiposFiltrados.map((t) => DropdownMenuItem(
     value: t['id'].toString(), 
-    child: Text(t['nombre'])
+    child: Text(
+      t['nombre'],
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+    )
   )).toList(),
   onChanged: (val) => setState(() { 
     _idTipoSeleccionado = val; 

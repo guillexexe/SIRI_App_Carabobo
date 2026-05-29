@@ -47,3 +47,7 @@ El servidor quedará en **http://localhost:3000**. El frontend (Vue en puerto 51
 
 - `GET /api/incidentes` — Lista todos los incidentes
 - `POST /api/incidentes` — Crea un incidente (body JSON: tipo, tipo_nombre, categoria, descripcion, lat, lng, municipio, fecha)
+
+## Flutter Web y CORS
+
+Si la app Flutter corre en `http://localhost:5000` y el `apiUrl` apunta a un túnel externo (p. ej. serveousercontent), el navegador bloqueará las peticiones hasta que **ese servidor remoto** envíe `Access-Control-Allow-Origin`. En desarrollo use `http://localhost:3000/api` con `npm run dev` en esta carpeta.

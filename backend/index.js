@@ -4,27 +4,35 @@ import cors from 'cors'
 import incidentesRouter from './routes/incidentes.js'
 import authRouter from './routes/auth.js'
 import geocodingRouter from './routes/geocoding.js'
-import { ensureIncidentesSchema } from './db/ensureSchema.js'
+import { ensureIncidentesSchema, ensureCatalogoEstructura } from './db/ensureSchema.js'
+import catalogoRouter from './routes/catalogo.js'
 import edanRoutes from './routes/edan.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
 
-/* origin: true permite 192.168.x.x y otros orígenes en red local (Vite --host) */
-app.use(cors({ origin: true }))
+/* origin: true refleja el Origin (localhost:5000, etc.) y responde al preflight OPTIONS */
+app.use(
+  cors({
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
+)
 app.use(express.json())
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
-
 
 app.use('/api/incidentes', incidentesRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/geocoding', geocodingRouter)
+app.use('/api/catalogo', catalogoRouter)
 app.use('/api/edan', edanRoutes)
+
 app.get('/api/health', (req, res) => res.json({ ok: true }))
 
 try {
   await ensureIncidentesSchema()
+  await ensureCatalogoEstructura()
 } catch {
   console.error('Revise la conexión a MySQL y que exista la base de datos.')
   process.exit(1)

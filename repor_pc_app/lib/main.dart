@@ -17,7 +17,7 @@ import 'recuperar_password_page.dart';
 // Opción C: Teléfono físico en la misma red WiFi que la PC
 // const String apiUrl = "http://localhost:3000/api";
 // Producción / túnel:
-const String apiUrl = "https://38a64610bdbb907a-190-120-254-236.serveousercontent.com/api";
+const String apiUrl = "https://e856e5d66228559d-190-120-254-236.serveousercontent.com/api";
 // const String apiUrl = ""; // Usa la IP real
 
 void main() {

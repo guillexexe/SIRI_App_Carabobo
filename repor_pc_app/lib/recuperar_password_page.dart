@@ -23,7 +23,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   bool _obscurePass = true;
 
   // Base URL de tu Serveo
-  final String _baseUrl = "https://cfc5b7860e5ffac7-190-120-254-236.serveousercontent.com/api/auth";
+  final String _baseUrl = "https://e856e5d66228559d-190-120-254-236.serveousercontent.com/api/auth";
 
   // Paso 1: Enviar correo para recibir el código de 6 dígitos
   Future<void> _solicitarCodigo() async {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'footer.dart';
 
 const int _maxCensoPorCampo = 10;
 const int _maxEdad = 130;
@@ -221,6 +222,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
               ],
             ),
           ),
+       bottomNavigationBar: const Footer(),   
     );
   }
   Step _stepIdentificacion() => Step(

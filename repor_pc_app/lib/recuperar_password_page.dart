@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http; // O tu cliente http personalizado
-
+import 'footer.dart'; // Para usar el Footer
 class RecuperarPasswordPage extends StatefulWidget {
   const RecuperarPasswordPage({super.key});
 
@@ -23,7 +23,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
   bool _obscurePass = true;
 
   // Base URL de tu Serveo
-  final String _baseUrl = "https://e856e5d66228559d-190-120-254-236.serveousercontent.com/api/auth";
+  final String _baseUrl = "http://190.9.40.85:3000/api/auth";
 
   // Paso 1: Enviar correo para recibir el código de 6 dígitos
   Future<void> _solicitarCodigo() async {
@@ -240,6 +240,7 @@ class _RecuperarPasswordPageState extends State<RecuperarPasswordPage> {
           ),
         ),
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 }

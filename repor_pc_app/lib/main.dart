@@ -10,6 +10,7 @@ import 'edan_form.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'recuperar_password_page.dart';
+import 'footer.dart';
 
 // --- CONFIGURACIÓN GLOBAL ---
 // Opción B: Emulador oficial de Android (apunta al localhost de la PC)
@@ -17,7 +18,7 @@ import 'recuperar_password_page.dart';
 // Opción C: Teléfono físico en la misma red WiFi que la PC
 // const String apiUrl = "http://localhost:3000/api";
 // Producción / túnel:
-const String apiUrl = "https://e856e5d66228559d-190-120-254-236.serveousercontent.com/api";
+const String apiUrl = "http://190.9.40.85:3000/api";
 // const String apiUrl = ""; // Usa la IP real
 
 void main() {
@@ -329,6 +330,7 @@ const SizedBox(height: 24),
           ),
         ),
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
   @override
@@ -470,6 +472,7 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         ),
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 
@@ -693,10 +696,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final String rol = widget.userData['rol'] ?? "civil";
     final Color azulPC = const Color(0xFF003194);
     final Color naranjaPC = const Color(0xFFD32F2F);
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text("S.I.R.I. Menu", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text("S.I.R.I.C. Menu", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: azulPC,
         elevation: 0,
         actions: [
@@ -819,6 +821,7 @@ Container(
           ),
         ],
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 
@@ -1105,7 +1108,6 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
   @override
   Widget build(BuildContext context) {
     if (_isLoadingData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
     return Scaffold(
       appBar: AppBar(
         title: const Text("Nuevo Reporte"),
@@ -1263,6 +1265,7 @@ Widget _itemResumen(String etiqueta, String valor, IconData icono) {
           ],
         ),
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 
@@ -1292,73 +1295,138 @@ class HistorialReportesPage extends StatefulWidget {
 class _HistorialReportesPageState extends State<HistorialReportesPage> {
   
   Future<List<dynamic>> _fetchHistorial() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? token = prefs.getString('session_token');
-    final userData = jsonDecode(prefs.getString('session_user')!);
-    final userId = userData['id'];
-    final response = await http.get(Uri.parse("$apiUrl/incidentes/mis-reportes/${widget.idUsuario}"),
-    headers: {
-      'Authorization': 'Bearer $token',
-      'Content-Type': 'application/json',
-    },
-  );
-    if (response.statusCode == 200) {
-      return json.decode(response.body);
-    } else {
-      throw Exception('Error al cargar historial');
+  final prefs = await SharedPreferences.getInstance();
+  final String? token = prefs.getString('session_token');
+  
+  final String? userRaw = prefs.getString('session_user');
+  if (userRaw == null) return [];
+
+  final userData = jsonDecode(userRaw);
+  final userId = userData['id']?.toString();
+
+  if (userId == null) return [];
+
+  try {
+    // 1. Llamada a Incidentes Normales
+    final responseIncidentes = await http.get(
+      Uri.parse("$apiUrl/incidentes/mis-reportes/$userId"),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    // 2. Llamada a EDAN
+    final responseEdan = await http.get(
+      Uri.parse("$apiUrl/edan/historial-edan/$userId"),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    List<dynamic> listaFinal = [];
+
+    // Procesar incidentes si la respuesta es exitosa
+    if (responseIncidentes.statusCode == 200) {
+      final List incidentes = jsonDecode(responseIncidentes.body);
+      listaFinal.addAll(incidentes.map((i) => {...i, 'tipo_origen': 'incidente'}));
     }
+
+    // Procesar EDAN si la respuesta es exitosa
+    if (responseEdan.statusCode == 200) {
+      final List edan = jsonDecode(responseEdan.body);
+      listaFinal.addAll(edan.map((e) => {...e, 'tipo_origen': 'edan'}));
+    }
+
+    // 3. Ordenar todo por fecha (usando 'created_at' que ambos deberían tener)
+    listaFinal.sort((a, b) {
+      DateTime fechaA = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(2000);
+      DateTime fechaB = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(2000);
+      return fechaB.compareTo(fechaA); // Más recientes primero
+    });
+
+    return listaFinal;
+
+  } catch (e) {
+    debugPrint("Error al cargar historial: $e");
+    return [];
+  }
+}
+  String formatearEstado(String estadoRaw) {
+    String estadoFormateado = estadoRaw.replaceAll('_', ' ');
+    if (estadoFormateado.isEmpty) return "";
+    return estadoFormateado[0].toUpperCase() + estadoFormateado.substring(1);
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Mis Reportes"), backgroundColor: Colors.orange[800]),
-      body: FutureBuilder<List<dynamic>>(
-        future: _fetchHistorial(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text("No has realizado reportes aún."));
-          }
-          final reportes = snapshot.data ?? [];
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text("Mis Reportes"), backgroundColor: Colors.orange[800]),
+    body: FutureBuilder<List<dynamic>>(
+      future: _fetchHistorial(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(child: Text("Error: ${snapshot.error}"));
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(child: Text("No has realizado reportes aún."));
+        }
+        
+        final reportes = snapshot.data!;
 
-          return ListView.builder(
-            itemCount: snapshot.data!.length,
-            itemBuilder: (context, index) {
-              final r = reportes[index];
-              
-              // --- BLINDAJE DE LA FECHA ---
-              // Busca 'fecha' primero, si no está busca 'created_at'. Si ninguno existe, usa ''.
-              String fechaRaw = (r['fecha'] ?? r['created_at'] ?? '').toString();
-              // Solo corta los 10 caracteres si el texto es lo suficientemente largo
-              String fechaLimpia = fechaRaw.length >= 10 ? fechaRaw.substring(0, 10) : 'Fecha no disponible';
+        return ListView.builder(
+          itemCount: reportes.length,
+          itemBuilder: (context, index) {
+            final r = reportes[index];
+            final bool esEdan = r['tipo_origen'] == 'edan';
 
+            // --- LÓGICA PARA EDAN ---
+            if (esEdan) {
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                elevation: 3,
+                color: Colors.orange.shade50, // Color diferenciador
                 child: ListTile(
-                  leading: _getEstatusIcon(r['estatus_incidente'] ?? r['estado']),
-                  title: Text("${r['nombre_incidente'] ?? r['tipo_nombre'] ?? 'Incidente'}"),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Fecha: $fechaLimpia"), // <-- ¡Aquí aplicamos la fecha segura!
-                      Text("Afectados: ${r['afectados'] ?? 'No especificado'}"),
-                    ],
+                  leading: const Icon(Icons.assignment, color: Colors.orange),
+                  title: Text("EDAN: ${r['sector']}"),
+                  subtitle: Text(
+                    "Municipio: ${r['municipio'] ?? 'N/A'}"
+                    ", Parroquia: ${r['parroquia'] ?? 'N/A'}"
+                    ", Dirección: ${r['direccion']}\n"
+                    "Fecha: ${r['fecha']?.toString().substring(0, 10) ?? 'N/A'}"
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () => _mostrarDetalles(r),
+                  isThreeLine: true,
                 ),
               );
-            },
-          );
-        },
-      ),
-    );
-  }
+            }
+
+            // --- LÓGICA PARA INCIDENTES NORMALES ---
+            String fechaRaw = (r['fecha'] ?? r['created_at'] ?? '').toString();
+            String estado = (r['estatus_incidente'] ?? r['estado'] ?? 'abierto').toString().toLowerCase();
+            String fechaLimpia = fechaRaw.length >= 10 ? fechaRaw.substring(0, 10) : 'N/A';
+
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              elevation: 3,
+              child: ListTile(
+                leading: _getEstatusIcon(r['estatus_incidente'] ?? r['estado']),
+                title: Text("${r['nombre_incidente'] ?? r['tipo_nombre'] ?? 'Incidente'}"),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Fecha: $fechaLimpia"),
+                    Text("Estado: ${formatearEstado(estado)}", 
+                         style: TextStyle(fontWeight: FontWeight.bold, color: estado == 'cerrado' ? Colors.red : Colors.orange.shade800)),
+                    if (estado == 'cerrado' && r['resultado_cierre'] != null)
+                      Text("Resultado: ${r['resultado_cierre']}", style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
+                  ],
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () => _mostrarDetalles(r),
+              ),
+            );
+          },
+        );
+      },
+    ),
+    bottomNavigationBar: const Footer(),
+  );
+}
 
   // Widget para mostrar iconos según el estatus
   Widget _getEstatusIcon(String? estatus) {
@@ -1370,38 +1438,45 @@ class _HistorialReportesPageState extends State<HistorialReportesPage> {
     }
   }
 
-  void _mostrarDetalles(dynamic reporte) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
-        height: MediaQuery.of(context).size.height * 0.5, 
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  void _mostrarDetalles(dynamic r) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(r['nombre_incidente'] ?? r['tipo_nombre'] ?? 'Detalles'),
+      content: SingleChildScrollView(
+        child: ListBody(
           children: [
-            Text(
-              reporte['nombre_incidente'] ?? reporte['tipo_nombre'] ?? 'Incidente sin nombre', 
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
-            ),
+            _buildDetalleItem("Descripción", r['descripcion']),
+            _buildDetalleItem("Ubicación", "${r['via'] ?? ''}, ${r['municipio'] ?? ''}"),
             const Divider(),
-            Text("Descripción: ${reporte['descripcion'] ?? 'Sin detalle'}"),
-            const SizedBox(height: 10),
-            Text("Heridos: ${reporte['heridos'] ?? reporte['heridos_cierre'] ?? '0'}"),
-            Text("Fallecidos: ${reporte['fallecidos'] ?? reporte['fallecidos_cierre'] ?? '0'}"),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Cerrar"),
-              ),
-            )
+            _buildDetalleItem("Estado", r['estado'] ?? 'abierto'),
+            _buildDetalleItem("Heridos", (r['heridos_cierre'] ?? 0).toString()),
+            _buildDetalleItem("Fallecidos", (r['fallecidos_cierre'] ?? 0).toString()),
+            if (r['resultado_cierre'] != null && r['resultado_cierre'].toString().isNotEmpty)
+              _buildDetalleItem("Resolución Final", r['resultado_cierre']),
           ],
         ),
       ),
-    );
-  }
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cerrar")),
+      ],
+    ),
+  );
+}
+
+// Widget auxiliar para que el código quede ordenado
+Widget _buildDetalleItem(String titulo, String valor) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4.0),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+        Text(valor),
+      ],
+    ),
+  );
+}
 }
 
 class MapaVivoPage extends StatefulWidget {
@@ -1412,7 +1487,7 @@ class MapaVivoPage extends StatefulWidget {
 }
 class _MapaVivoPageState extends State<MapaVivoPage> {
   List<Marker> _markers = [];
-  bool _mostrarLeyenda = true; // Controla si se ve o se oculta la leyenda
+  bool _mostrarLeyenda = false; // Controla si se ve o se oculta la leyenda
   List<Map<String, dynamic>> _categoriasLeyenda = [];
 
   @override
@@ -1422,77 +1497,88 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
   }
 
   Future<void> _cargarPuntos() async {
-    try {
-      final response = await http.get(
-        Uri.parse("$apiUrl/incidentes/mapa-global"), 
-        headers: {
-          'User-Agent': 'SIRI_App_Carabobo',
-          'Accept': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 10));
+  try {
+    // 1. Recuperar credenciales de sesión
+    final prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString('session_token');
+    final String? userRaw = prefs.getString('session_user');
+    
+    if (token == null || userRaw == null) {
+      print("Error: No hay sesión activa.");
+      return;
+    }
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        
-        // --- PROCESAMIENTO DINÁMICO DE LA LEYENDA ---
-        final Map<String, Color> mapeoUnico = {};
-        
-        for (var item in data) {
-          String catNombre = item['categoria']?.toString() ?? item['slug']?.toString() ?? 'Otros';
-          String nombreLower = catNombre.toLowerCase();
-          
-          // REGLA DE NEGOCIO: Si es clima, el nombre descriptivo real está en el Tipo de incidente
-          String labelFinal = (nombreLower == 'clima' || nombreLower == 'climatológico')
-              ? (item['tipo_nombre']?.toString() ?? 'Clima')
-              : catNombre;
+    final userId = json.decode(userRaw)['id']?.toString();
 
-          // Capitalizamos la primera letra para que se vea estético en la UI
-          if (labelFinal.isNotEmpty) {
-            labelFinal = labelFinal[0].toUpperCase() + labelFinal.substring(1);
-          }
+    // 2. Realizar ambas peticiones con los headers correctos
+    final incidentesFuture = http.get(Uri.parse("$apiUrl/incidentes/mapa-global"), headers: {'User-Agent': 'SIRI_App_Carabobo'});
+    final edanFuture = http.get(Uri.parse("$apiUrl/edan/historial-edan/$userId"), headers: {'Authorization': 'Bearer $token'});
 
-          // Si este nombre aún no está en nuestro mapa de leyendas, lo agregamos con su color real
-          if (!mapeoUnico.containsKey(labelFinal)) {
-            // Usamos tu función para garantizar que el color del marcador y el de la leyenda sean EXACTAMENTE el mismo
-            mapeoUnico[labelFinal] = _determinarColorMarcador(item);
-          }
-        }
+    final results = await Future.wait([incidentesFuture, edanFuture]);
 
-        setState(() {
-          // Convertimos el mapa de elementos únicos a la lista formateada para el widget
-          _categoriasLeyenda = mapeoUnico.entries.map((e) => {
-            'nombre': e.key,
-            'color': e.value
-          }).toList();
+    if (results[0].statusCode == 200 && results[1].statusCode == 200) {
+      final List<dynamic> incidentesData = json.decode(results[0].body);
+      final List<dynamic> edanData = json.decode(results[1].body);
 
-          // Cargamos tus marcadores tal y como los tenías
-          _markers = data.map((item) {
-            double lat = double.tryParse(item['lat']?.toString() ?? '') ?? 0.0;
-            double lng = double.tryParse(item['lng']?.toString() ?? '') ?? 0.0;
+      setState(() {
+        // --- PROCESAMIENTO DE MARCADORES (Incidentes + EDAN) ---
+        // Marcadores Incidentes
+        List<Marker> markersIncidentes = incidentesData.map((item) {
+          double lat = double.tryParse(item['lat']?.toString() ?? '0') ?? 0.0;
+          double lng = double.tryParse(item['lng']?.toString() ?? '0') ?? 0.0;
+          return Marker(
+            point: LatLng(lat, lng),
+            child: GestureDetector(
+              onTap: () => _mostrarMiniInfo(item),
+              child: Icon(Icons.location_on, color: _determinarColorMarcador(item), size: 40),
+            ),
+          );
+        }).toList();
 
-            return Marker(
-              point: LatLng(lat, lng),
-              width: 40,
-              height: 40,
-              child: GestureDetector(
-                onTap: () => _mostrarMiniInfo(item),
-                child: Icon(
-                  Icons.location_on,
-                  color: _determinarColorMarcador(item), 
-                  size: 40,
-                ),
-              ),
-            );
-          }).toList();
-        });
-      } else if (response.statusCode == 403) {
-        print("Error 403: El servidor o el túnel rechazó la petición.");
-      }
-      
-    } catch (e) {
-      print("Error cargando mapa: $e");
+        // Marcadores EDAN (Color Rosa: 0xFFFF69B4)
+        List<Marker> markersEdan = edanData.map((item) {
+          double lat = double.tryParse(item['lat']?.toString() ?? '0') ?? 0.0;
+          double lng = double.tryParse(item['lng']?.toString() ?? '0') ?? 0.0;
+          return Marker(
+            point: LatLng(lat, lng),
+            child: GestureDetector(
+              onTap: () => _mostrarMiniInfoEdan(item),
+              child: const Icon(Icons.assignment, color: Color(0xFFFF69B4), size: 35),
+            ),
+          );
+        }).toList();
+
+        _markers = [...markersIncidentes, ...markersEdan];
+
+  // 1. Reiniciamos la leyenda antes de reconstruirla
+  final Map<String, Color> mapaLeyenda = {};
+
+  // 2. Agregamos primero las categorías de incidentes (de incidentesData)
+  for (var item in incidentesData) {
+    String catNombre = item['categoria']?.toString() ?? 'Otros';
+    String label = catNombre[0].toUpperCase() + catNombre.substring(1);
+    if (!mapaLeyenda.containsKey(label)) {
+      mapaLeyenda[label] = _determinarColorMarcador(item);
     }
   }
+
+  // 3. Agregamos manualmente EDAN al final
+  mapaLeyenda['Reporte EDAN'] = const Color(0xFFFF69B4);
+
+  // 4. Convertimos el mapa a la lista que espera tu widget _buildLeyendaFlotante
+  _categoriasLeyenda = mapaLeyenda.entries.map((e) => {
+    'nombre': e.key,
+    'color': e.value
+  }).toList();
+});
+      
+    } else {
+      print("Error de autenticación o servidor: ${results[0].statusCode} / ${results[1].statusCode}");
+    }
+  } catch (e) {
+    print("Error cargando mapa: $e");
+  }
+}
 
   Color _determinarColorMarcador(dynamic item) {
     // Buscamos el nombre de la categoría (puede venir como 'categoria' o 'slug')
@@ -1529,6 +1615,17 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
       return const Color(0xFFFF8C00); 
     }
   }
+
+void _mostrarMiniInfoEdan(dynamic item) {
+  ScaffoldMessenger.of(context).removeCurrentSnackBar();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text("EDAN: ${item['municipio']} - ${item['sector']}"),
+      backgroundColor: Colors.orange[800], // Naranja para diferenciar
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
 
   void _mostrarMiniInfo(dynamic item) {
     // 1. Buscamos el nombre del incidente usando todas las variantes que envía el backend
@@ -1680,6 +1777,7 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
           ),
         ],
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 }
@@ -1821,6 +1919,7 @@ class _AjustesPageState extends State<AjustesPage> {
           ),
         ),
       ),
+      bottomNavigationBar: const Footer(),
     );
   }
 
@@ -1925,6 +2024,7 @@ class _PendientesScreenState extends State<PendientesScreen> {
               )
             ],
           ),
+          bottomNavigationBar: const Footer(),
     );
   }
 }

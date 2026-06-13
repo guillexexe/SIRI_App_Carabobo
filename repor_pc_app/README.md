@@ -19,3 +19,6 @@ flutter run -d web-server --web-port 5000 --web-hostname 0.0.0.0
 tunel:
 ssh -R 80:127.0.0.1:3000 serveo.net
 generar APK: flutter build apk --debug
+ssh root@190.9.40.85
+10a0c8ff-e306-4fa7-8ad0-a6af30ae8380
+pm2 restart siric-backend

@@ -90,8 +90,8 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   bool _isLoading = false;
   final _formKey = GlobalKey<FormState>();
   // 1. IDENTIFICACIÓN Y PROPIETARIO
-  final _nroPlanillaCtrl = TextEditingController();
-  final _nroInformeCtrl = TextEditingController();
+  //final _nroPlanillaCtrl = TextEditingController();
+  //final _nroInformeCtrl = TextEditingController();
   final _propietarioCtrl = TextEditingController();
   final _cedulaCtrl = TextEditingController();
   final _edadCtrl = TextEditingController();
@@ -228,11 +228,11 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   Step _stepIdentificacion() => Step(
     title: const Text("Identificación"),
     content: Column(children: [
-      Row(children: [
-        Expanded(child: _buildTextField(_nroPlanillaCtrl, "Nº Planilla")),
-        const SizedBox(width: 10),
-        Expanded(child: _buildTextField(_nroInformeCtrl, "Nº Informe")),
-      ]),
+      ///Row(children: [
+      ///  Expanded(child: _buildTextField(_nroPlanillaCtrl, "Nº Planilla")),
+      ///  const SizedBox(width: 10),
+      /// Expanded(child: _buildTextField(_nroInformeCtrl, "Nº Informe")),
+      ///]),
       const Divider(),
       _buildTextField(_propietarioCtrl, "Nombre del Propietario"),
       _buildTextField(
@@ -562,8 +562,8 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
   String? _validarPaso(int paso) {
     switch (paso) {
       case 0:
-        if (_nroPlanillaCtrl.text.trim().isEmpty) return 'Indique el Nº de planilla.';
-        if (_nroInformeCtrl.text.trim().isEmpty) return 'Indique el Nº de informe.';
+        ///if (_nroPlanillaCtrl.text.trim().isEmpty) return 'Indique el Nº de planilla.';
+        ///if (_nroInformeCtrl.text.trim().isEmpty) return 'Indique el Nº de informe.';
         if (_propietarioCtrl.text.trim().isEmpty) return 'Indique el nombre del propietario.';
         final errCed = _validarCedula(_cedulaCtrl.text);
         if (errCed != null) return errCed;
@@ -643,7 +643,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
     final idOficial = int.parse(widget.datosIniciales['id_usuario'].toString());
     final edanData = {
         'id_oficial': idOficial,
-        'numero_planilla': _nroPlanillaCtrl.text.trim(),
+        /// 'numero_planilla': _nroPlanillaCtrl.text.trim(),
         'propetario': _propietarioCtrl.text.trim(),
         'p_cedula': _cedulaCtrl.text.trim().toUpperCase(),
         'P_edad': int.parse(_edadCtrl.text.trim()),
@@ -656,7 +656,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
         'direccion': _direccionCtrl.text.trim(),
         'lat': widget.datosIniciales['lat'],
         'lng': widget.datosIniciales['lng'],
-        'nro_informe': _nroInformeCtrl.text.trim(),
+        ///'nro_informe': _nroInformeCtrl.text.trim(),
         'fecha_solicitud': _fechaSolicitudCtrl.text,
         'fecha_afectacion': _fechaAfectacionCtrl.text,
         'descripcion_afectacion': _descAfectacionCtrl.text.trim(),

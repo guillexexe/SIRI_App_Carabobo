@@ -698,7 +698,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final Color naranjaPC = const Color(0xFFD32F2F);
     return Scaffold(
       appBar: AppBar(
-        title: const Text("S.I.R.I.C. Menu", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text("S.I.R.I.CAR Menu", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: azulPC,
         elevation: 0,
         actions: [

@@ -8,7 +8,7 @@ import 'footer.dart';
 const int _maxCensoPorCampo = 10;
 const int _maxEdad = 130;
 final RegExp _cedulaRegex = RegExp(r'^[VJE]\d{6,10}$', caseSensitive: false);
-final RegExp _telefonoRegex = RegExp(r'^\d{7,11}$');
+final RegExp _telefonoRegex = RegExp(r'^04\d{2}-\d{7}$');
 
 class _CedulaVeFormatter extends TextInputFormatter {
   @override
@@ -77,6 +77,26 @@ String? _municipioCanonico(String? raw) {
     if (mNorm.contains(canon) || canon.contains(mNorm)) return m;
   }
   return null;
+}
+
+class _TelefonoFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    String text = newValue.text.replaceAll('-', ''); // Quitar guiones existentes
+    if (text.length > 11) text = text.substring(0, 11); // Limitar longitud
+
+    final buffer = StringBuffer();
+    for (int i = 0; i < text.length; i++) {
+      if (i == 4) buffer.write('-'); // Insertar guion en la posición correcta
+      buffer.write(text[i]);
+    }
+
+    final String formatted = buffer.toString();
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }
 class EdanFormScreen extends StatefulWidget {
   final Map<String, dynamic> datosIniciales;
@@ -176,7 +196,7 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
     final t = (v ?? '').trim();
     if (t.isEmpty) return 'Indique el teléfono.';
     if (!_telefonoRegex.hasMatch(t)) {
-      return 'El teléfono debe contener solo números (7 a 11 dígitos).';
+      return 'Formato inválido. Debe ser 04XX-XXXXXXX';
     }
     return null;
   }
@@ -256,8 +276,8 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
           child: _buildTextField(
             _telefonoCtrl,
             "Teléfono",
-            hint: "Solo números",
-            inputFormatters: [_SoloDigitosFormatter(maxLength: 11)],
+            hint: "04XX-XXXXXXX",
+  inputFormatters: [_TelefonoFormatter()],
           ),
         ),
       ]),
@@ -686,8 +706,9 @@ class _EdanFormScreenState extends State<EdanFormScreen> {
           'genero': f['genero'],
         }).toList(),
       };
-
+      
     try {
+      print("Payload enviado a registrar: ${json.encode(edanData)}");
       final response = await http.post(
         Uri.parse("${widget.apiUrl}/edan/registrar"),
         headers: {"Content-Type": "application/json"},

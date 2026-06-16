@@ -15,6 +15,9 @@ const MUNICIPIOS_CARABOBO = [
   'Miranda',
   'Montalbán',
   'Carlos Arvelo',
+  'San Joaquín',
+  'Los Guayos',
+  'Libertador',
 ]
 const CARABOBO_BOUNDS = {
   minLat: 9.95,
@@ -26,6 +29,11 @@ const TIPOS_AFECTACION = ['anegacion', 'inundacion', 'deslizamiento', 'otros']
 const CONDICIONES_VIVIENDA = ['afectada', 'alto_riesgo', 'destruida']
 const TIPOS_VIVIENDA = ['anarquica', 'improvisada', 'casa convencional']
 const OPCIONES_SI_NO = ['si', 'no']
+const SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s.'-]+$/
+const ALFANUM_GUION = /^[A-Za-z0-9-]+$/
+const TEXTO_GENERAL = /^[A-Za-z0-9ÁÉÍÓÚáéíóúÑñÜü\s.,#°º/-]+$/
+const TELEFONO_VENEZOLANO = /^04\d{2}-\d{7}$/
+const CEDULA_VENEZOLANA = /^[VJE]\d{6,9}$/
 const SELECT_EDAN = `
   id, id_oficial, fecha_reporte, numero_planilla, propetario, p_cedula, P_edad, P_telefono,
   municipio, parroquia, sector, nro_casa, urbanizacion, direccion, lat, lng, nro_informe,
@@ -106,6 +114,22 @@ function textoRequerido(v, campo, maxLen = 255) {
   return t
 }
 
+function validarPatron(t, campo, patron, mensaje) {
+  if (!patron.test(String(t || '').trim())) {
+    throw new Error(mensaje || `El campo ${campo} tiene un formato inválido.`)
+  }
+  return t
+}
+
+function normalizarCedula(v, campo = 'cédula') {
+  let c = String(v || '').replace(/\s/g, '').toUpperCase()
+  if (/^\d{6,9}$/.test(c)) c = `V${c}`
+  if (!CEDULA_VENEZOLANA.test(c)) {
+    throw new Error(`${campo} debe ser V, E o J seguido de 6 a 9 dígitos.`)
+  }
+  return c
+}
+
 function textoOpcional(v, maxLen = 255) {
   const t = String(v || '').trim()
   if (!t) return null
@@ -135,6 +159,19 @@ function fechaRequerida(v, campo) {
   return d
 }
 
+function validarFechasEdan(fechaSolicitud, fechaAfectacion) {
+  const ahora = new Date()
+  if (fechaSolicitud > ahora) {
+    throw new Error('La fecha de solicitud no puede ser futura.')
+  }
+  if (fechaAfectacion > ahora) {
+    throw new Error('La fecha de afectación no puede ser futura.')
+  }
+  if (fechaAfectacion > fechaSolicitud) {
+    throw new Error('La fecha de afectación no puede ser posterior a la solicitud.')
+  }
+}
+
 function coordONull(v) {
   if (v == null || String(v).trim() === '') return null
   const n = Number(v)
@@ -159,14 +196,17 @@ function validarCoordsCarabobo(lat, lng) {
 }
 
 function normalizarDetallesFamiliares(arr) {
-  if (!Array.isArray(arr)) return []
   const out = []
   for (const it of arr) {
     const nombre = String(it?.nombre_completo || '').trim()
-    const cedula = String(it?.cedula || '').trim()
-    if (!nombre && !cedula) continue
+    if (!nombre) throw new Error('El nombre del afectado es obligatorio.')
+    validarPatron(nombre, 'nombre_completo', SOLO_LETRAS, 'El nombre del afectado solo permite letras.')
+    const cedula = normalizarCedula(it?.cedula, 'La cédula del afectado')
     const edad = enteroNoNegativo(it?.edad ?? 0, 'edad de detalle familiar', 130)
     const generoBase = String(it?.genero || '').trim().toLowerCase()
+    if (!['femenino', 'masculino'].includes(generoBase)) {
+      throw new Error('El sexo del afectado debe ser Femenino o Masculino.')
+    }
     const genero = generoBase === 'femenino' ? 'Femenino' : 'Masculino'
     out.push({
       nombre_completo: nombre.slice(0, 150),
@@ -205,25 +245,51 @@ function validarYNormalizarPayload(d, { requiereIdOficial }) {
   const lat = coordONull(d?.lat)
   const lng = coordONull(d?.lng)
   validarCoordsCarabobo(lat, lng)
+  const fecha_solicitud = fechaRequerida(d?.fecha_solicitud, 'fecha_solicitud')
+  const fecha_afectacion = fechaRequerida(d?.fecha_afectacion, 'fecha_afectacion')
+  validarFechasEdan(fecha_solicitud, fecha_afectacion)
+
+  const numero_planilla = textoOpcional(d?.numero_planilla, 50) || `APP-${Date.now().toString().slice(-6)}`
+  validarPatron(numero_planilla, 'numero_planilla', ALFANUM_GUION, 'Número de planilla solo admite letras, números y guion.')
+  const nro_informe = textoOpcional(d?.nro_informe, 50) || `INF-${Date.now().toString().slice(-6)}`
+  validarPatron(nro_informe, 'nro_informe', ALFANUM_GUION, 'Nro. informe solo admite letras, números y guion.')
+  const propetario = textoRequerido(d?.propetario, 'propetario', 100)
+  validarPatron(propetario, 'propetario', SOLO_LETRAS, 'Propietario solo permite letras.')
+  const p_cedula = textoRequerido(d?.p_cedula, 'p_cedula', 20)
+  if (!/^[VEJ]?\d{6,20}$/.test(p_cedula)) {
+    throw new Error('Cédula debe ser numérica y tener entre 6 y 20 dígitos.')
+  }
+  const P_telefono = textoRequerido(d?.P_telefono, 'P_telefono', 20)
+  validarPatron(P_telefono, 'P_telefono', TELEFONO_VENEZOLANO, 'Teléfono debe tener formato 0414-1234567.')
+  const parroquia = textoRequerido(d?.parroquia, 'parroquia', 100)
+  validarPatron(parroquia, 'parroquia', SOLO_LETRAS, 'Parroquia solo permite letras.')
+  const sector = textoRequerido(d?.sector, 'sector', 100)
+  validarPatron(sector, 'sector', SOLO_LETRAS, 'Sector solo permite letras.')
+  const nro_casa = textoRequerido(d?.nro_casa, 'nro_casa', 20)
+  validarPatron(nro_casa, 'nro_casa', ALFANUM_GUION, 'Nro. casa solo admite letras, números y guion.')
+  const urbanizacion = textoRequerido(d?.urbanizacion, 'urbanizacion', 100)
+  validarPatron(urbanizacion, 'urbanizacion', SOLO_LETRAS, 'Urbanización solo permite letras.')
+  const direccion = textoRequerido(d?.direccion, 'direccion', 255)
+  validarPatron(direccion, 'direccion', TEXTO_GENERAL, 'Dirección solo admite letras, números y signos básicos.')
 
   const payload = {
     id_oficial,
-    numero_planilla: textoRequerido(d?.numero_planilla, 'numero_planilla', 50),
-    propetario: textoRequerido(d?.propetario, 'propetario', 100),
-    p_cedula: textoRequerido(d?.p_cedula, 'p_cedula', 20),
+    numero_planilla,
+    propetario,
+    p_cedula,
     P_edad: enteroNoNegativo(d?.P_edad, 'P_edad', 130),
-    P_telefono: textoRequerido(d?.P_telefono, 'P_telefono', 20),
+    P_telefono,
     municipio: municipioCanonico,
-    parroquia: textoRequerido(d?.parroquia, 'parroquia', 100),
-    sector: textoRequerido(d?.sector, 'sector', 100),
-    nro_casa: textoOpcional(d?.nro_casa, 20),
-    urbanizacion: textoOpcional(d?.urbanizacion, 100),
-    direccion: textoRequerido(d?.direccion, 'direccion', 255),
+    parroquia,
+    sector,
+    nro_casa,
+    urbanizacion,
+    direccion,
     lat,
     lng,
-    nro_informe: textoRequerido(d?.nro_informe, 'nro_informe', 50),
-    fecha_solicitud: fechaRequerida(d?.fecha_solicitud, 'fecha_solicitud'),
-    fecha_afectacion: fechaRequerida(d?.fecha_afectacion, 'fecha_afectacion'),
+    nro_informe,
+    fecha_solicitud,
+    fecha_afectacion,
     descripcion_afectacion: textoRequerido(d?.descripcion_afectacion, 'descripcion_afectacion', 4000),
     tipo_afectacion,
     afectacion_otros: tipo_afectacion === 'otros' ? textoRequerido(d?.afectacion_otros, 'afectacion_otros', 255) : textoOpcional(d?.afectacion_otros, 255),
@@ -257,6 +323,12 @@ function validarYNormalizarPayload(d, { requiereIdOficial }) {
     detalles_familiares: normalizarDetallesFamiliares(d?.detalles_familiares),
   }
 
+  if (payload.total_personas <= 0) {
+    throw new Error('total_personas debe ser mayor que cero.')
+  }
+  if (payload.nro_familias <= 0) {
+    throw new Error('nro_familias debe ser mayor que cero.')
+  }
   const sumaPersonas =
     payload.lact_Fem +
     payload.lact_Masc +
@@ -266,10 +338,27 @@ function validarYNormalizarPayload(d, { requiereIdOficial }) {
     payload.adultos_Masc +
     payload.tercera_edad_Fem +
     payload.tercera_edad_Masc
+  if (sumaPersonas <= 0) {
+    throw new Error('Debe registrar al menos una persona en los grupos etarios.')
+  }
   if (payload.total_personas < sumaPersonas) {
     throw new Error('total_personas no puede ser menor a la suma de grupos etarios.')
   }
   return payload
+}
+
+function esErrorValidacion(msg) {
+  return (
+    msg.startsWith('El campo ') ||
+    msg.includes('Carabobo') ||
+    msg.includes('debe') ||
+    msg.includes('solo') ||
+    msg.includes('obligatorio') ||
+    msg.includes('inválid') ||
+    msg.includes('válid') ||
+    msg.includes('posterior') ||
+    msg.includes('futura')
+  )
 }
 
 router.get('/health', (req, res) => {
@@ -286,6 +375,42 @@ router.get('/', async (_req, res) => {
     res.json(rows)
   } catch (err) {
     console.error('Error en EDAN GET /:', err)
+    res.status(500).json({ error: 'Error al listar reportes EDAN' })
+  }
+})
+
+const DIAS_VIDA_EDAN_MAPA = 7
+
+/** Reportes EDAN con ubicación para el mapa en vivo (últimos 7 días). */
+router.get('/mapa-vivo', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ${SELECT_EDAN}
+       FROM reportes_edan
+       WHERE lat IS NOT NULL
+         AND lng IS NOT NULL
+         AND fecha_reporte >= DATE_SUB(NOW(), INTERVAL ? DAY)
+       ORDER BY fecha_reporte DESC, id DESC`,
+      [DIAS_VIDA_EDAN_MAPA]
+    )
+    res.json(rows)
+  } catch (err) {
+    console.error('Error en EDAN GET /mapa-vivo:', err)
+    res.status(500).json({ error: 'Error al listar reportes EDAN para el mapa' })
+  }
+})
+
+/** Alias usado por clientes móviles: todos los reportes (filtrar en cliente si hace falta). */
+router.get('/todos-los-reportes', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ${SELECT_EDAN}
+       FROM reportes_edan
+       ORDER BY fecha_reporte DESC, id DESC`
+    )
+    res.json(rows)
+  } catch (err) {
+    console.error('Error en EDAN GET /todos-los-reportes:', err)
     res.status(500).json({ error: 'Error al listar reportes EDAN' })
   }
 })
@@ -391,7 +516,7 @@ router.post('/registrar', async (req, res) => {
   } catch (err) {
     await connection.rollback()
     const msg = err?.message || 'Error al registrar reporte EDAN'
-    const status = msg.startsWith('El campo ') || msg.includes('Carabobo') ? 400 : 500
+    const status = esErrorValidacion(msg) ? 400 : 500
     console.error('Error en EDAN /registrar:', err)
     res.status(status).json({ error: msg })
   } finally {
@@ -487,7 +612,7 @@ router.put('/:id', async (req, res) => {
   } catch (err) {
     await connection.rollback()
     const msg = err?.message || 'Error al actualizar reporte EDAN'
-    const status = msg.startsWith('El campo ') || msg.includes('Carabobo') ? 400 : 500
+    const status = esErrorValidacion(msg) ? 400 : 500
     console.error('Error en EDAN PUT /:id:', err)
     res.status(status).json({ error: msg })
   } finally {

@@ -12,10 +12,12 @@ API REST (Node.js + Express + MySQL) para la gestión de incidentes.
 En phpMyAdmin (XAMPP) o en la consola de MySQL, ejecuta el script:
 
 ```
-backend/db/schema.sql
+backend/db/proteccion_civil_carabobo.sql
 ```
 
-Crea la base de datos `proteccion_civil_carabobo` y la tabla `incidentes`.
+Crea la base de datos `proteccion_civil_carabobo` y las tablas principales del sistema.
+
+> Importante: este script hace `DROP DATABASE` y reemplaza por completo la base. Si ya tienes datos, respáldalos antes.
 
 ## 2. Configuración
 
@@ -47,7 +49,3 @@ El servidor quedará en **http://localhost:3000**. El frontend (Vue en puerto 51
 
 - `GET /api/incidentes` — Lista todos los incidentes
 - `POST /api/incidentes` — Crea un incidente (body JSON: tipo, tipo_nombre, categoria, descripcion, lat, lng, municipio, fecha)
-
-## Flutter Web y CORS
-
-Si la app Flutter corre en `http://localhost:5000` y el `apiUrl` apunta a un túnel externo (p. ej. serveousercontent), el navegador bloqueará las peticiones hasta que **ese servidor remoto** envíe `Access-Control-Allow-Origin`. En desarrollo use `http://localhost:3000/api` con `npm run dev` en esta carpeta.

@@ -698,7 +698,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final Color naranjaPC = const Color(0xFFD32F2F);
     return Scaffold(
       appBar: AppBar(
-        title: const Text("S.I.R.I.CAR Menu", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        title: const Text("S.I.R.I.CAR Menú", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: azulPC,
         elevation: 0,
         actions: [
@@ -723,15 +723,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             decoration: BoxDecoration(
               color: azulPC,
               borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(30),
-                bottomRight: Radius.circular(30),
+                bottomLeft: Radius.circular(120),
+                bottomRight: Radius.circular(120),
               ),
             ),
             child: Column(
               children: [
 Container(
-  height: 80, // Mismo tamaño aproximado que el CircleAvatar original (radius * 2)
-  width: 80,
+  height: 90, // Mismo tamaño aproximado que el CircleAvatar original (radius * 2)
+  width: 90,
   padding: const EdgeInsets.all(5), // Pequeño margen interno opcional
   decoration: const BoxDecoration(
     color: Color.fromARGB(255, 248, 247, 247), // <--- Forzamos la transparencia total aquí
@@ -739,10 +739,10 @@ Container(
   ),
   child: ClipRRect(
     // ClipRRect asegura un recorte circular perfecto de cualquier borde fantasma
-    borderRadius: BorderRadius.circular(40),
+    borderRadius: BorderRadius.circular(30),
     child: Image.asset(
       'assets/images/IASIEDAGREC.jpeg',
-      fit: BoxFit.contain, // Asegura que el logo no se corte y mantenga su proporción
+      fit: BoxFit.scaleDown, // Asegura que el logo no se corte y mantenga su proporción
     ),
   ),
 ),
@@ -1499,6 +1499,8 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
   Future<void> _cargarPuntos() async {
   try {
     // 1. Recuperar credenciales de sesión
+    final DateTime ahora = DateTime.now();
+    final DateTime limite24h = ahora.subtract(const Duration(hours: 24));
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('session_token');
     final String? userRaw = prefs.getString('session_user');
@@ -1536,19 +1538,31 @@ class _MapaVivoPageState extends State<MapaVivoPage> {
         }).toList();
 
         // Marcadores EDAN (Color Rosa: 0xFFFF69B4)
-        List<Marker> markersEdan = edanData.map((item) {
-          double lat = double.tryParse(item['lat']?.toString() ?? '0') ?? 0.0;
-          double lng = double.tryParse(item['lng']?.toString() ?? '0') ?? 0.0;
-          return Marker(
-            point: LatLng(lat, lng),
-            child: GestureDetector(
-              onTap: () => _mostrarMiniInfoEdan(item),
-              child: const Icon(Icons.assignment, color: Color(0xFFFF69B4), size: 35),
-            ),
-          );
-        }).toList();
+        List<Marker> markersEdan = edanData.where((item) {
+  // Intentamos parsear la fecha del reporte
+  final String? fechaStr = item['fecha']; // Asegúrate de que el nombre coincida con tu JSON
+  if (fechaStr == null) return false;
+  
+  try {
+    final DateTime fechaReporte = DateTime.parse(fechaStr);
+    // Solo dejamos pasar los que sean mayores (más recientes) a la fecha límite
+    return fechaReporte.isAfter(limite24h);
+  } catch (e) {
+    return false; // Si la fecha está mal, no mostramos el reporte
+  }
+}).map((item) {
+  double lat = double.tryParse(item['lat']?.toString() ?? '0') ?? 0.0;
+  double lng = double.tryParse(item['lng']?.toString() ?? '0') ?? 0.0;
+  return Marker(
+    point: LatLng(lat, lng),
+    child: GestureDetector(
+      onTap: () => _mostrarMiniInfoEdan(item),
+      child: const Icon(Icons.assignment, color: Color(0xFFFF69B4), size: 35),
+    ),
+  );
+}).toList();
 
-        _markers = [...markersIncidentes, ...markersEdan];
+_markers = [...markersIncidentes, ...markersEdan];
 
   // 1. Reiniciamos la leyenda antes de reconstruirla
   final Map<String, Color> mapaLeyenda = {};

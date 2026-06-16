@@ -1,6 +1,8 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import incidentesRouter from './routes/incidentes.js'
 import authRouter from './routes/auth.js'
 import geocodingRouter from './routes/geocoding.js'
@@ -10,17 +12,20 @@ import edanRoutes from './routes/edan.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const uploadsEvidenciasDir = path.join(__dirname, 'uploads', 'evidencias')
 
-/* origin: true refleja el Origin (localhost:5000, etc.) y responde al preflight OPTIONS */
+/* origin: true permite 192.168.x.x y otros orígenes en red local (Vite --host) */
+app.use(cors({ origin: true }))
+app.use(express.json())
 app.use(
-  cors({
-    origin: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
+  '/uploads/evidencias',
+  express.static(uploadsEvidenciasDir, {
+    fallthrough: false,
+    maxAge: '1d',
   })
 )
-app.use(express.json())
 
 app.use('/api/incidentes', incidentesRouter)
 app.use('/api/auth', authRouter)

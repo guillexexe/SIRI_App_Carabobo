@@ -1,10 +1,10 @@
-# SIRIC - Sistema de Información y Rastreo de Incidentes Carabobo 🚨
+# SIRIC - Sistema de Información y Rastreo de Incidentes Carabobo 
 
 API RESTful, servicios en tiempo real y arquitectura backend para el registro, geolocalización y despacho de incidentes naturales y antrópicos, desarrollada para optimizar la capacidad de respuesta operativa en el Estado Carabobo.
 
 ---
 
-## 📐 Arquitectura del Sistema
+##  Arquitectura del Sistema
 
 ```mermaid
 graph TD

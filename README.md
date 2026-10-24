@@ -13,7 +13,8 @@ graph TD
     API -->|Consultas SQL / Optimización| DB[(Base de Datos Relacional MySQL)]
     API -->|Proxy Inverso / SSL| Nginx[Servidor Linux VPS / Nginx]
     Nginx --> OS[Ubuntu Server]
-Tecnologías PrincipalesRuntime: 
+Tecnologías Principales
+Runtime: 
     Node.js (v18+)
     Framework Backend: Express.js
     Base de Datos: MySQL (Modelado relacional y optimización de consultas)

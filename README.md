@@ -47,19 +47,24 @@ graph TD
 ```bash
 git clone [https://github.com/guillexexe/siric-app-carabobo.git](https://github.com/guillexexe/siric-app-carabobo.git)
 cd siric-app-carabobo
+```
 ### 2. Instalar dependencias
 ```bash
     npm install
+```
 ### 3. Configurar variables de entorno
     Duplica el archivo de ejemplo y completa los parámetros de conexión a tu base de datos y puerto:
 ```bash
         cp .env.example .env
+```
 ### 4. Ejecutar con Docker (Opcional)
 ```bash
     docker-compose up --build -d
+```
 ### 5. Iniciar en modo desarrollo
 ```bash
     npm run dev
+```
 Endpoints Principales de la API
 Método   Endpoint               Descripción
 GET      /api/v1/incidents      Lista todos los incidentes activos en el sistema

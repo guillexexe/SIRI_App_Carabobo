@@ -13,7 +13,7 @@ graph TD
     API -->|Consultas SQL / Optimización| DB[(Base de Datos Relacional MySQL)]
     API -->|Proxy Inverso / SSL| Nginx[Servidor Linux VPS / Nginx]
     Nginx --> OS[Ubuntu Server]
-
+```
 ---
 
 ## Tecnologías Principales
